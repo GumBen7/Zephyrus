@@ -3,7 +3,7 @@ import pandas as pd
 import math
 from typing import Tuple, List, Dict, Any
 
-PROJECT_ID = 'plated-monolith-425409-f3'
+G_PROJECT_ID = 'plated-monolith-425409-f3'
 CITY_NAME = "chita"
 ORIGIN_COORDINATES = (52.033635, 113.501049)
 DISTANCES_KM = [10, 20, 30, 50, 100, 150, 200]
@@ -11,8 +11,8 @@ BEARINGS_DEG = [0, 45, 90, 135, 180, 225, 270, 315]
 YEARS_TO_ANALYZE = [2019, 2020, 2021, 2022, 2023, 2024]
 MONTH_TO_ANALYZE = 2
 EARTH_RADIUS_KM = 6371
-NO2_COLLECTION = "COPERNICUS/S5P/OFFL/L3_NO2"
-SAMPLING_SCALE_METERS = 1113.2
+GEE_NO2_COLLECTION = "COPERNICUS/S5P/OFFL/L3_NO2"
+GEE_COLLECTION_SCALE = 1113.2
 MOL_PER_M2_TO_UMOL_PER_M2 = 10 ** 6
 
 
@@ -60,7 +60,7 @@ def fetch_monthly_no2_data(year: int, month: int, points_fc: ee.FeatureCollectio
     end_date = start_date.advance(1, 'month')
 
     monthly_mean_image = (
-        ee.ImageCollection(NO2_COLLECTION)
+        ee.ImageCollection(GEE_NO2_COLLECTION)
         .select("NO2_column_number_density")
         .filterDate(start_date, end_date)
         .mean()
@@ -68,7 +68,7 @@ def fetch_monthly_no2_data(year: int, month: int, points_fc: ee.FeatureCollectio
 
     sampled_features = monthly_mean_image.sampleRegions(
         collection=points_fc,
-        scale=SAMPLING_SCALE_METERS,
+        scale=GEE_COLLECTION_SCALE,
         geometries=True
     )
 
@@ -92,7 +92,7 @@ def fetch_monthly_no2_data(year: int, month: int, points_fc: ee.FeatureCollectio
 
 
 def main():
-    initialize_ee(PROJECT_ID)
+    initialize_ee(G_PROJECT_ID)
 
     analysis_points = create_analysis_points(ORIGIN_COORDINATES, DISTANCES_KM, BEARINGS_DEG)
 
