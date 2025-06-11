@@ -14,6 +14,7 @@ EARTH_RADIUS_KM = 6371
 GEE_NO2_COLLECTION = "COPERNICUS/S5P/OFFL/L3_NO2"
 GEE_COLLECTION_SCALE = 1113.2
 MOL_PER_M2_TO_UMOL_PER_M2 = 10 ** 6
+EXPORTS_FOLDER = "exports"
 
 
 def initialize_ee(project_id: str):
@@ -112,9 +113,9 @@ def main():
     ).reset_index()
     df = df.rename_axis(columns=None)
 
-    output_file_name = f"no2_february_{CITY_NAME_CHITA}_refactored.csv"
+    output_file_name = f"no2_february_{CITY_NAME_CHITA}.csv"
 
-    df.to_csv(output_file_name, index=False, decimal=",", sep="\t")
+    df.to_csv(EXPORTS_FOLDER + '/' + output_file_name, index=False, decimal=",", sep="\t")
 
 
 if __name__ == "__main__":
