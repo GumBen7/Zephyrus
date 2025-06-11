@@ -4,8 +4,8 @@ import math
 from typing import Tuple, List, Dict, Any
 
 G_PROJECT_ID = 'plated-monolith-425409-f3'
-CITY_NAME = "chita"
-ORIGIN_COORDINATES = (52.033635, 113.501049)
+CITY_NAME_CHITA = "chita"
+CITY_COORDINATES_CHITA = (52.033635, 113.501049)
 DISTANCES_KM = [10, 20, 30, 50, 100, 150, 200]
 BEARINGS_DEG = [0, 45, 90, 135, 180, 225, 270, 315]
 YEARS_TO_ANALYZE = [2019, 2020, 2021, 2022, 2023, 2024]
@@ -94,7 +94,7 @@ def fetch_monthly_no2_data(year: int, month: int, points_fc: ee.FeatureCollectio
 def main():
     initialize_ee(G_PROJECT_ID)
 
-    analysis_points = create_analysis_points(ORIGIN_COORDINATES, DISTANCES_KM, BEARINGS_DEG)
+    analysis_points = create_analysis_points(CITY_COORDINATES_CHITA, DISTANCES_KM, BEARINGS_DEG)
 
     all_data = []
     for year in YEARS_TO_ANALYZE:
@@ -112,7 +112,7 @@ def main():
     ).reset_index()
     df = df.rename_axis(columns=None)
 
-    output_file_name = f"no2_february_{CITY_NAME}_refactored.csv"
+    output_file_name = f"no2_february_{CITY_NAME_CHITA}_refactored.csv"
 
     df.to_csv(output_file_name, index=False, decimal=",", sep="\t")
 
