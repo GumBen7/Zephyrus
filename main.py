@@ -1,20 +1,10 @@
-import ee
-import pandas as pd
 import math
 from typing import Tuple, List, Dict, Any
 
-G_PROJECT_ID = 'plated-monolith-425409-f3'
-CITY_NAME_CHITA = "chita"
-CITY_COORDINATES_CHITA = (52.033635, 113.501049)
-DISTANCES_KM = [10, 20, 30, 50, 100, 150, 200]
-BEARINGS_DEG = [0, 45, 90, 135, 180, 225, 270, 315]
-YEARS_TO_ANALYZE = [2019, 2020, 2021, 2022, 2023, 2024]
-MONTH_TO_ANALYZE = 2
-EARTH_RADIUS_KM = 6371
-GEE_NO2_COLLECTION = "COPERNICUS/S5P/OFFL/L3_NO2"
-GEE_COLLECTION_SCALE = 1113.2
-MOL_PER_M2_TO_UMOL_PER_M2 = 10 ** 6
-EXPORTS_FOLDER = "exports"
+import ee
+import pandas as pd
+
+import config
 
 
 def initialize_ee(project_id: str):
@@ -30,7 +20,7 @@ def calculate_new_coordinates(lat: float, lon: float, distance_km: float, bearin
     lat_rad = math.radians(lat)
     lon_rad = math.radians(lon)
     bearing_rad = math.radians(bearing_deg)
-    delta = distance_km / EARTH_RADIUS_KM
+    delta = distance_km / config.EARTH_RADIUS_KM
 
     new_lat_rad = math.asin(
         math.sin(lat_rad) * math.cos(delta) +
@@ -61,7 +51,7 @@ def fetch_monthly_no2_data(year: int, month: int, points_fc: ee.FeatureCollectio
     end_date = start_date.advance(1, 'month')
 
     monthly_mean_image = (
-        ee.ImageCollection(GEE_NO2_COLLECTION)
+        ee.ImageCollection(config.GEE_NO2_COLLECTION)
         .select("NO2_column_number_density")
         .filterDate(start_date, end_date)
         .mean()
@@ -69,7 +59,7 @@ def fetch_monthly_no2_data(year: int, month: int, points_fc: ee.FeatureCollectio
 
     sampled_features = monthly_mean_image.sampleRegions(
         collection=points_fc,
-        scale=GEE_COLLECTION_SCALE,
+        scale=config.GEE_COLLECTION_SCALE,
         geometries=True
     )
 
@@ -87,19 +77,19 @@ def fetch_monthly_no2_data(year: int, month: int, points_fc: ee.FeatureCollectio
             'year': year,
             'bearing': props['bearing'],
             'distance': props['distance'],
-            'no2_umol_m2': no2_value * MOL_PER_M2_TO_UMOL_PER_M2 if no2_value is not None else None
+            'no2_umol_m2': no2_value * config.MOL_PER_M2_TO_UMOL_PER_M2 if no2_value is not None else None
         })
     return processed_results
 
 
 def main():
-    initialize_ee(G_PROJECT_ID)
+    initialize_ee(config.G_PROJECT_ID)
 
-    analysis_points = create_analysis_points(CITY_COORDINATES_CHITA, DISTANCES_KM, BEARINGS_DEG)
+    analysis_points = create_analysis_points(config.CITY_COORDINATES_CHITA, config.DISTANCES_KM, config.BEARINGS_DEG)
 
     all_data = []
-    for year in YEARS_TO_ANALYZE:
-        monthly_data = fetch_monthly_no2_data(year, MONTH_TO_ANALYZE, analysis_points)
+    for year in config.YEARS_TO_ANALYZE:
+        monthly_data = fetch_monthly_no2_data(year, config.MONTH_TO_ANALYZE, analysis_points)
         all_data.extend(monthly_data)
 
     if not all_data:
@@ -113,9 +103,9 @@ def main():
     ).reset_index()
     df = df.rename_axis(columns=None)
 
-    output_file_name = f"no2_february_{CITY_NAME_CHITA}.csv"
+    output_file_name = f"no2_february_{config.CITY_NAME_CHITA}.csv"
 
-    df.to_csv(EXPORTS_FOLDER + '/' + output_file_name, index=False, decimal=",", sep="\t")
+    df.to_csv(config.EXPORTS_FOLDER + '/' + output_file_name, index=False, decimal=",", sep="\t")
 
 
 if __name__ == "__main__":
