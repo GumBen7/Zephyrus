@@ -3,8 +3,6 @@ from typing import Optional
 
 import config
 from models import City, Fetcher, Exporter
-from models.exporters import CsvExporter
-from models.fetchers import GeeFetcher
 from models.routes import MonthlyDataRoute
 
 
@@ -28,19 +26,20 @@ def calculate_new_coordinates(lat: float, lon: float, distance_km: float, bearin
 class Analysis:
     def __init__(self):
         self.current_city: Optional[City] = None
-        self.cities: list[City] = []
+        self.cities: dict[str, City] = {}
         self.data_fetcher: Optional[Fetcher] = None
         self.exporter: Optional[Exporter] = None
 
-    def run(self):
-        self.current_city = City(name=config.CITY_NAME_CHITA, coordinates=config.CITY_COORDINATES_CHITA, routes={})
-        self.cities = [self.current_city]
-        self.data_fetcher = GeeFetcher()
-        self.create_analysis_points(config.DISTANCES_KM, config.BEARINGS_DEG)
-        self.exporter = CsvExporter()
+    def run(self, city: City, fetcher: Fetcher, exporter: Exporter):
+        self.current_city = city
+        if not self.cities.get(city.id):
+            self.cities[city.id] = city
+        self.data_fetcher = fetcher
+        self.exporter = exporter
+        self._generate_points(config.DISTANCES_KM, config.BEARINGS_DEG)
         self.obtain_data()
 
-    def create_analysis_points(self, distances: list[int], bearings: list[int]):
+    def _generate_points(self, distances: list[int], bearings: list[int]):
         current_city = self.current_city
         origin_lat, origin_lon = current_city.coordinates
         for bearing in bearings:

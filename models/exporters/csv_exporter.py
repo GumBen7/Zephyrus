@@ -20,6 +20,6 @@ class CsvExporter(Exporter):
         ).reset_index()
         df = df.rename_axis(columns=None)
 
-        output_file_name = f"no2_february_{city.name}.csv"
+        output_file_name = f"no2_february_{city.id}.csv"
 
         df.to_csv(config.EXPORTS_FOLDER + '/' + output_file_name, index=False, decimal=",", sep="\t")

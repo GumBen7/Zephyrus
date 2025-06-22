@@ -11,7 +11,7 @@ def main():
     app = QApplication(sys.argv)
     model = Analysis()
     view = MainWindow()
-    MainPresenter(view, model)
+    presenter = MainPresenter(view, model)
     view.show()
     sys.exit(app.exec())
 
