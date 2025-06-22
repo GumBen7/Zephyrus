@@ -3,6 +3,16 @@ from models import City
 G_PROJECT_ID = 'plated-monolith-425409-f3'
 DISTANCES_KM = [10, 20, 30, 50, 100, 150, 200]
 BEARINGS_DEG = [0, 45, 90, 135, 180, 225, 270, 315]
+BEARINGS = {
+    0: "Север",
+    45: "Северо-Восток",
+    90: "Восток",
+    135: "Юго-Восток",
+    180: "Юг",
+    225: "Юго-Запад",
+    270: "Запад",
+    315: "Северо-Запад"
+}
 YEARS_TO_ANALYZE = [2019, 2020, 2021, 2022, 2023, 2024]
 MONTH_TO_ANALYZE = 2
 EARTH_RADIUS_KM = 6371
