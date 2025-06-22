@@ -1,4 +1,5 @@
 import math
+from typing import Optional
 
 import config
 from models import City, Fetcher, Exporter
@@ -26,13 +27,13 @@ def calculate_new_coordinates(lat: float, lon: float, distance_km: float, bearin
 
 class Analysis:
     def __init__(self):
-        self.current_city: City
-        self.cities: list[City]
-        self.data_fetcher: Fetcher
-        self.exporter: Exporter
-        self.__post_init__()
+        self.current_city: Optional[City] = None
+        self.cities: list[City] = []
+        self.data_fetcher: Optional[Fetcher] = None
+        self.exporter: Optional[Exporter] = None
+        #self.__post_init__()
 
-    def __post_init__(self):
+    def run(self):
         self.current_city = City(name=config.CITY_NAME_CHITA, coordinates=config.CITY_COORDINATES_CHITA, routes={})
         self.cities = [self.current_city]
         self.data_fetcher = GeeFetcher()
