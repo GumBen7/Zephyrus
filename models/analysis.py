@@ -31,7 +31,6 @@ class Analysis:
         self.cities: list[City] = []
         self.data_fetcher: Optional[Fetcher] = None
         self.exporter: Optional[Exporter] = None
-        #self.__post_init__()
 
     def run(self):
         self.current_city = City(name=config.CITY_NAME_CHITA, coordinates=config.CITY_COORDINATES_CHITA, routes={})
