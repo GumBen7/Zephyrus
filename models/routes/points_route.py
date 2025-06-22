@@ -5,4 +5,4 @@ from models.route import Route
 
 @dataclass
 class PointsRoute(Route):
-    points: dict[tuple[int, int], tuple[float, float]] = field(default_factory=list)
+    points: dict[tuple[int, int], tuple[float, float]] = field(default_factory=dict)

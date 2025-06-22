@@ -7,4 +7,4 @@ from models.routes.points_route import PointsRoute
 class MonthlyDataRoute(PointsRoute):
     year: int = 0
     month: int = 0
-    densities: dict[tuple[int, int], float] = field(default_factory=list)
+    densities: dict[tuple[int, int], float] = field(default_factory=dict)
