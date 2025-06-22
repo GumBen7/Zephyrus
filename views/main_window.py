@@ -1,6 +1,6 @@
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtWidgets import QMainWindow, QPushButton, QVBoxLayout, QWidget, QComboBox, QHBoxLayout, QSpacerItem, \
-    QSizePolicy
+    QSizePolicy, QLabel, QFrame, QSplitter
 
 import config
 from models import City
@@ -8,45 +8,63 @@ from models import City
 
 class MainWindow(QMainWindow):
     city_selected_signal = Signal(City)
+    bearing_selected_signal = Signal(int)
     start_analysis_signal = Signal()
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Zephyrus")
-        self.resize(1000, 600)
-        self.setMinimumSize(400, 250)
+        self.resize(1200, 700)
+        self.setMinimumSize(800, 500)
 
         self._init_ui()
         self._init_signals()
+        self.populate_cities()
+        self.populate_bearings()
 
     def _init_ui(self):
-        self.start_button = QPushButton("Start")
+        controls_layout = QVBoxLayout()
+        controls_layout.setContentsMargins(10, 10, 10, 10)
+        controls_layout.setSpacing(15)
+
+        city_label = QLabel("City:")
         self.city_combo_box = QComboBox()
 
-        city_layout = QHBoxLayout()
-        city_layout.addWidget(self.city_combo_box)
+        bearing_label = QLabel("Bearing:")
+        self.bearing_combo_box = QComboBox()
 
-        main_layout = QVBoxLayout()
-        main_layout.addSpacerItem(QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+        self.start_button = QPushButton("Start")
+        self.start_button.setMinimumHeight(40)
 
-        main_layout.addLayout(city_layout)
-        main_layout.addSpacing(20)
+        controls_layout.addWidget(city_label)
+        controls_layout.addWidget(self.city_combo_box)
+        controls_layout.addWidget(bearing_label)
+        controls_layout.addWidget(self.bearing_combo_box)
+        controls_layout.addSpacing(20)
+        controls_layout.addWidget(self.start_button)
+        controls_layout.addStretch()
 
-        main_layout.addWidget(self.start_button, alignment=Qt.AlignmentFlag.AlignCenter)
+        controls_widget = QWidget()
+        controls_widget.setLayout(controls_layout)
+        controls_widget.setMaximumWidth(350)
 
-        main_layout.addSpacerItem(QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+        plot_area_layout = QVBoxLayout()
+        placeholder_label = QLabel("Graph")
+        placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        placeholder_label.setStyleSheet("font-size: 20px; color: #aaa;")
+        plot_area_layout.addWidget(placeholder_label)
 
-        central_widget = QWidget()
-        central_widget.setLayout(main_layout)
+        plot_area_widget = QFrame()
+        plot_area_widget.setLayout(plot_area_layout)
 
-        root_layout = QHBoxLayout()
-        root_layout.addStretch()
-        root_layout.addWidget(central_widget)
-        root_layout.addStretch()
+        plot_area_widget.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Sunken)
 
-        final_widget = QWidget()
-        final_widget.setLayout(root_layout)
-        self.setCentralWidget(final_widget)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(controls_widget)
+        splitter.addWidget(plot_area_widget)
+        splitter.setSizes([300, 900])
+
+        self.setCentralWidget(splitter)
 
     def _init_signals(self):
         self.start_button.clicked.connect(self.start_analysis_signal.emit)
@@ -57,6 +75,15 @@ class MainWindow(QMainWindow):
         if city_data:
             self.city_selected_signal.emit(city_data)
 
+    def _on_bearing_changed(self, index: int):
+        bearing_data = self.bearing_combo_box.itemData(index)
+        if bearing_data is not None:
+            self.bearing_selected_signal.emit(bearing_data)
+
     def populate_cities(self):
         for city in config.CITIES.values():
             self.city_combo_box.addItem(city.name, userData=city)
+
+    def populate_bearings(self):
+        for degrees, name in config.BEARINGS.items():
+            self.bearing_combo_box.addItem(name, userData=degrees)
