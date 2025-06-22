@@ -1,6 +1,5 @@
 from PySide6.QtCore import Signal, Qt
-from PySide6.QtWidgets import QMainWindow, QPushButton, QVBoxLayout, QWidget, QComboBox, QHBoxLayout, QSpacerItem, \
-    QSizePolicy, QLabel, QFrame, QSplitter
+from PySide6.QtWidgets import QMainWindow, QPushButton, QVBoxLayout, QWidget, QComboBox, QLabel, QFrame, QSplitter
 
 import config
 from models import City
