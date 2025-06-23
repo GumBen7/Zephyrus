@@ -22,9 +22,9 @@ class MainPresenter:
         if first_city:
             self.on_city_selected(first_city)
 
-        second_bearing = list(config.BEARINGS.keys())[0]
-        if second_bearing is not None:
-            self.on_bearing_selected(second_bearing)
+        first_bearing = list(config.BEARINGS.keys())[0]
+        if first_bearing is not None:
+            self.on_bearing_selected(first_bearing)
 
     def _connect_signals(self):
         self.view.start_analysis_signal.connect(self.run_analysis)
