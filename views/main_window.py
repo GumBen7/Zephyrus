@@ -1,5 +1,6 @@
 from PySide6.QtCore import Signal, Qt
-from PySide6.QtWidgets import QMainWindow, QPushButton, QVBoxLayout, QWidget, QComboBox, QLabel, QFrame, QSplitter
+from PySide6.QtWidgets import QMainWindow, QPushButton, QVBoxLayout, QWidget, QComboBox, QLabel, QFrame, QSplitter, \
+    QGroupBox, QGridLayout, QCheckBox
 
 import config
 from models import City
@@ -32,6 +33,25 @@ class MainWindow(QMainWindow):
         bearing_label = QLabel("Bearing:")
         self.bearing_combo_box = QComboBox()
 
+        self.distances_group_box = QGroupBox("Distances (км)")
+        distances_grid_layout = QGridLayout()
+        self.distances_group_box.setLayout(distances_grid_layout)
+
+        self.distance_checkboxes: list[QCheckBox] = []
+
+        row, col = 0, 0
+        for distance in config.DISTANCES_KM:
+            checkbox = QCheckBox(str(distance))
+            checkbox.setChecked(True)
+            checkbox.setProperty("distance_value", distance)
+            self.distance_checkboxes.append(checkbox)
+            distances_grid_layout.addWidget(checkbox, row, col)
+
+            col += 1
+            if col > 1:
+                col = 0
+                row += 1
+
         self.start_button = QPushButton("Start")
         self.start_button.setMinimumHeight(40)
 
@@ -39,6 +59,7 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.city_combo_box)
         controls_layout.addWidget(bearing_label)
         controls_layout.addWidget(self.bearing_combo_box)
+        controls_layout.addWidget(self.distances_group_box)
         controls_layout.addSpacing(20)
         controls_layout.addWidget(self.start_button)
         controls_layout.addStretch()
@@ -87,3 +108,10 @@ class MainWindow(QMainWindow):
     def populate_bearings(self):
         for degrees, name in config.BEARINGS.items():
             self.bearing_combo_box.addItem(name, userData=degrees)
+
+    def get_selected_distances(self) -> list[int]:
+        selected = []
+        for checkbox in self.distance_checkboxes:
+            if checkbox.isChecked():
+                selected.append(checkbox.property("distance_value"))
+        return selected

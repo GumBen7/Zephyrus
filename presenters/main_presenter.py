@@ -38,11 +38,13 @@ class MainPresenter:
         self.current_bearing = bearing
 
     def run_analysis(self):
-        if not self.current_city or self.current_bearing is None:
+        selected_distances = self.view.get_selected_distances()
+        if not self.current_city or self.current_bearing is None or not selected_distances:
             return
         self.model.run(
-            self.current_city,
-            [self.current_bearing],
-            self.fetcher,
-            self.exporter
+            city=self.current_city,
+            bearings=[self.current_bearing],
+            distances=selected_distances,
+            fetcher=self.fetcher,
+            exporter=self.exporter
         )
