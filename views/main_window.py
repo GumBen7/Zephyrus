@@ -68,14 +68,15 @@ class MainWindow(QMainWindow):
     def _init_signals(self):
         self.start_button.clicked.connect(self.start_analysis_signal.emit)
         self.city_combo_box.currentIndexChanged.connect(self._on_city_changed)
+        self.bearing_combo_box.currentIndexChanged.connect(self._on_bearing_changed)
 
     def _on_city_changed(self, index: int):
         city_data = self.city_combo_box.itemData(index)
         if city_data:
             self.city_selected_signal.emit(city_data)
 
-    def _on_bearing_changed(self, index: int):
-        bearing_data = self.bearing_combo_box.itemData(index)
+    def _on_bearing_changed(self):
+        bearing_data = self.bearing_combo_box.currentData()
         if bearing_data is not None:
             self.bearing_selected_signal.emit(bearing_data)
 

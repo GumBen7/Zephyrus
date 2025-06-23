@@ -30,13 +30,13 @@ class Analysis:
         self.data_fetcher: Optional[Fetcher] = None
         self.exporter: Optional[Exporter] = None
 
-    def run(self, city: City, fetcher: Fetcher, exporter: Exporter):
+    def run(self, city: City, bearings: list[int], fetcher: Fetcher, exporter: Exporter):
         self.current_city = city
         if not self.cities.get(city.id):
             self.cities[city.id] = city
         self.data_fetcher = fetcher
         self.exporter = exporter
-        self._generate_points(config.DISTANCES_KM, config.BEARINGS_DEG)
+        self._generate_points(config.DISTANCES_KM, bearings)
         self.obtain_data()
 
     def _generate_points(self, distances: list[int], bearings: list[int]):
