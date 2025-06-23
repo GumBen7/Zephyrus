@@ -9,6 +9,7 @@ from models import City
 class MainWindow(QMainWindow):
     city_selected_signal = Signal(City)
     bearing_selected_signal = Signal(int)
+    month_selected_signal = Signal(int)
     start_analysis_signal = Signal()
 
     def __init__(self):
@@ -21,6 +22,7 @@ class MainWindow(QMainWindow):
         self._init_signals()
         self.populate_cities()
         self.populate_bearings()
+        self.populate_months()
 
     def _init_ui(self):
         controls_layout = QVBoxLayout()
@@ -36,6 +38,9 @@ class MainWindow(QMainWindow):
         self.distances_group_box = QGroupBox("Distances (км)")
         distances_grid_layout = QGridLayout()
         self.distances_group_box.setLayout(distances_grid_layout)
+
+        month_label = QLabel("Month:")
+        self.month_combo_box = QComboBox()
 
         self.distance_checkboxes: list[QCheckBox] = []
 
@@ -59,6 +64,8 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.city_combo_box)
         controls_layout.addWidget(bearing_label)
         controls_layout.addWidget(self.bearing_combo_box)
+        controls_layout.addWidget(month_label)
+        controls_layout.addWidget(self.month_combo_box)
         controls_layout.addWidget(self.distances_group_box)
         controls_layout.addSpacing(20)
         controls_layout.addWidget(self.start_button)
@@ -90,6 +97,7 @@ class MainWindow(QMainWindow):
         self.start_button.clicked.connect(self.start_analysis_signal.emit)
         self.city_combo_box.currentIndexChanged.connect(self._on_city_changed)
         self.bearing_combo_box.currentIndexChanged.connect(self._on_bearing_changed)
+        self.month_combo_box.currentIndexChanged.connect(self._on_month_changed)
 
     def _on_city_changed(self, index: int):
         city_data = self.city_combo_box.itemData(index)
@@ -101,6 +109,11 @@ class MainWindow(QMainWindow):
         if bearing_data is not None:
             self.bearing_selected_signal.emit(bearing_data)
 
+    def _on_month_changed(self, index: int):
+        month_data = self.month_combo_box.itemData(index)
+        if month_data is not None:
+            self.month_selected_signal.emit(month_data)
+
     def populate_cities(self):
         for city in config.CITIES.values():
             self.city_combo_box.addItem(city.name, userData=city)
@@ -108,6 +121,10 @@ class MainWindow(QMainWindow):
     def populate_bearings(self):
         for degrees, name in config.BEARINGS.items():
             self.bearing_combo_box.addItem(name, userData=degrees)
+
+    def populate_months(self):
+        for number, name in config.MONTHS.items():
+            self.month_combo_box.addItem(name, userData=number)
 
     def get_selected_distances(self) -> list[int]:
         selected = []

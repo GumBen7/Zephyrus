@@ -15,6 +15,7 @@ class MainPresenter:
 
         self.current_city : City | None = None
         self.current_bearing: int | None = None
+        self.current_month: int | None = None
 
         self._connect_signals()
 
@@ -25,6 +26,10 @@ class MainPresenter:
         first_bearing = list(config.BEARINGS.keys())[0]
         if first_bearing is not None:
             self.on_bearing_selected(first_bearing)
+
+        first_month = list(config.MONTHS.keys())[0]
+        if first_month is not None:
+            self.on_month_selected(first_month)
 
     def _connect_signals(self):
         self.view.start_analysis_signal.connect(self.run_analysis)
@@ -37,6 +42,9 @@ class MainPresenter:
     def on_bearing_selected(self, bearing: int):
         self.current_bearing = bearing
 
+    def on_month_selected(self, month: int):
+        self.current_month = month
+
     def run_analysis(self):
         selected_distances = self.view.get_selected_distances()
         if not self.current_city or self.current_bearing is None or not selected_distances:
@@ -44,6 +52,7 @@ class MainPresenter:
         self.model.run(
             city=self.current_city,
             bearings=[self.current_bearing],
+            month=self.current_month,
             distances=selected_distances,
             fetcher=self.fetcher,
             exporter=self.exporter

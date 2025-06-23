@@ -29,14 +29,16 @@ class Analysis:
         self.cities: dict[str, City] = {}
         self.data_fetcher: Optional[Fetcher] = None
         self.exporter: Optional[Exporter] = None
+        self.current_month: int | None = None
 
-    def run(self, city: City, bearings: list[int], distances: list[int], fetcher: Fetcher, exporter: Exporter):
+    def run(self, city: City, bearings: list[int], month: int, distances: list[int], fetcher: Fetcher, exporter: Exporter):
         self.current_city = city
         if not self.cities.get(city.id):
             self.cities[city.id] = city
+        self._generate_points(distances, bearings)
+        self.current_month = month
         self.data_fetcher = fetcher
         self.exporter = exporter
-        self._generate_points(distances, bearings)
         self.obtain_data()
 
     def _generate_points(self, distances: list[int], bearings: list[int]):
@@ -54,6 +56,6 @@ class Analysis:
         current_city = self.current_city
         all_data = []
         for year in config.YEARS_TO_ANALYZE:
-            monthly_data = self.data_fetcher.fetch(current_city, year, config.MONTH_TO_ANALYZE)
+            monthly_data = self.data_fetcher.fetch(current_city, year, self.current_month)
             all_data.extend(monthly_data)
         self.exporter.export(current_city, all_data)
