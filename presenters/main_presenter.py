@@ -1,8 +1,11 @@
+from PySide6.QtCore import QThread
+
 import config
 from models import City
 from models.analysis import Analysis
 from models.exporters import CsvExporter
 from models.fetchers import GeeFetcher
+from presenters.analysis_worker import AnalysisWorker
 from views.main_window import MainWindow
 
 
@@ -12,6 +15,9 @@ class MainPresenter:
         self.model = model
         self.fetcher = GeeFetcher()
         self.exporter = CsvExporter()
+
+        self.thread: QThread | None = None
+        self.worker: AnalysisWorker | None = None
 
         self.current_city : City | None = None
         self.current_bearing: int | None = None
@@ -49,7 +55,13 @@ class MainPresenter:
         selected_distances = self.view.get_selected_distances()
         if not self.current_city or self.current_bearing is None or not selected_distances:
             return
-        self.model.run(
+
+        #self.view.set_ui_enabled(False)
+        #self.view.set_progress(5, "Starting analysis")
+
+        self.thread = QThread()
+        self.worker = AnalysisWorker(
+            analysis_model=self.model,
             city=self.current_city,
             bearings=[self.current_bearing],
             month=self.current_month,
@@ -57,3 +69,23 @@ class MainPresenter:
             fetcher=self.fetcher,
             exporter=self.exporter
         )
+        self.worker.moveToThread(self.thread)
+        self.thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+       # self.thread.finished.connect(lambda: self.view.set_ui_enabled(True))
+
+        #self.worker.progress.connect(self.view.set_progress)
+        # self.worker.data_ready_for_export.connect(self.on_data_ready)
+
+        self.thread.start()
+
+        '''self.model.run(
+            city=self.current_city,
+            bearings=[self.current_bearing],
+            month=self.current_month,
+            distances=selected_distances,
+            fetcher=self.fetcher,
+            exporter=self.exporter
+        )'''

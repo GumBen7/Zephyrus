@@ -1,6 +1,6 @@
 from models import City
 
-G_PROJECT_ID = 'plated-monolith-425409-f3'
+G_PROJECT_ID = 'silicon-clock-463914-i2'
 DISTANCES_KM = [10, 20, 30, 50, 100, 150, 200]
 BEARINGS_DEG = [0, 45, 90, 135, 180, 225, 270, 315]
 BEARINGS = {
@@ -21,7 +21,7 @@ GEE_COLLECTION_SCALE = 1113.2
 MOL_PER_M2_TO_UMOL_PER_M2 = 10 ** 6
 EXPORTS_FOLDER = "exports"
 CITIES = {
-    "moscow": City(id="moscow", name="Москва", coordinates=(55.7558, 37.6173), routes={}),
+    "moscow": City(id="moscow", name="Москва", coordinates=(52.033635, 113.501049), routes={}),
     "saint_petersburg": City(id="saint_petersburg", name="Санкт-Петербург", coordinates=(59.9343, 30.3351), routes={}),
     "novosibirsk": City(id="novosibirsk", name="Новосибирск", coordinates=(55.0301, 82.9204), routes={}),
     "ekaterinburg": City(id="ekaterinburg", name="Екатеринбург", coordinates=(56.8380, 60.5975), routes={}),

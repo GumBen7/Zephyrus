@@ -15,7 +15,9 @@ class GeeFetcher(Fetcher):
     def _initialize_ee(self):
         try:
             ee.Initialize(project=config.G_PROJECT_ID)
-        except Exception:
+            print("Earth Engine initialized successfully.")
+        except Exception as e:
+            print(e)
             # ee.Authenticate()
             # ee.Initialize(project=project_id)
             raise
@@ -47,7 +49,8 @@ class GeeFetcher(Fetcher):
 
         try:
             results_info = sampled_features.getInfo()['features']
-        except Exception:
+        except Exception as e :
+            print(e)
             raise
 
         processed_results = []
