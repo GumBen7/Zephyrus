@@ -8,4 +8,4 @@ class City:
     id: str
     name: str
     coordinates: tuple[float, float]
-    routes: dict[int, Route]
+    routes: list[Route]

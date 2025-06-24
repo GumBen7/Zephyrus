@@ -41,28 +41,40 @@ class MainPresenter:
         self.view.start_analysis_signal.connect(self.run_analysis)
         self.view.city_selected_signal.connect(self.on_city_selected)
         self.view.bearing_selected_signal.connect(self.on_bearing_selected)
+        self.view.month_selected_signal.connect(self.on_month_selected)
+        print("Signals connected.")
 
     def on_city_selected(self, city: City):
         self.current_city = city
+        print(f"City selected: {city.name}")
 
     def on_bearing_selected(self, bearing: int):
         self.current_bearing = bearing
+        print(f"Bearing selected: {bearing}")
 
     def on_month_selected(self, month: int):
         self.current_month = month
+        print(f"Month selected: {month}")
 
     def run_analysis(self):
+        print("run_analysis called.")
         distance_params = self.view.get_distance_parameters()
-        if not self.current_city or self.current_bearing is None or not distance_params:
+        if not self.current_city or self.current_bearing is None or self.current_month is None or not distance_params:
+            print("Missing parameters for analysis. Aborting.")
             return
         distances = list(range(
             distance_params['step'],
             distance_params['max'] + 1,
             distance_params['step']
         ))
+        print(f"Analysis parameters: City={self.current_city.name}, Bearing={self.current_bearing}, Month={self.current_month}, Distances={distances}")
 
         #self.view.set_ui_enabled(False)
         #self.view.set_progress(5, "Starting analysis")
+
+        if self.thread and self.thread.isRunning():
+            print("Worker thread is already running, not starting a new one.")
+            return
 
         self.thread = QThread()
         self.worker = AnalysisWorker(
@@ -75,13 +87,16 @@ class MainPresenter:
             exporter=self.exporter
         )
         self.worker.moveToThread(self.thread)
+        print("Worker moved to thread.")
         self.thread.started.connect(self.worker.run)
         self.worker.finished.connect(self.thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
-       # self.thread.finished.connect(lambda: self.view.set_ui_enabled(True))
+        print("Worker/Thread signals connected.")
+        # self.thread.finished.connect(lambda: self.view.set_ui_enabled(True))
 
         #self.worker.progress.connect(self.view.set_progress)
         # self.worker.data_ready_for_export.connect(self.on_data_ready)
 
         self.thread.start()
+        print("Thread started.")

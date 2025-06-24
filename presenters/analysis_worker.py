@@ -19,10 +19,13 @@ class AnalysisWorker(QObject):
         self.distances = distances
         self.fetcher = fetcher
         self.exporter = exporter
+        print("AnalysisWorker initialized.")
 
     def run(self):
+        print("AnalysisWorker run method started.")
         try:
             self.progress.emit(10, "Started analysis")
+            print("Analysis model run method about to be called.")
             all_flat_data = self.analysis_model.run(
                 city=self.city,
                 bearings=self.bearings,
@@ -31,9 +34,11 @@ class AnalysisWorker(QObject):
                 fetcher=self.fetcher,
                 exporter=self.exporter
             )
+            print("Analysis model run method finished.")
 
             self.progress.emit(100, "Finished")
             self.data_ready_for_export.emit(all_flat_data)
+            print("Data ready signal emitted.")
 
         except Exception as e:
             self.progress.emit(0, f"Error: {e}")
