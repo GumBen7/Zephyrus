@@ -52,9 +52,14 @@ class MainPresenter:
         self.current_month = month
 
     def run_analysis(self):
-        selected_distances = self.view.get_selected_distances()
-        if not self.current_city or self.current_bearing is None or not selected_distances:
+        distance_params = self.view.get_distance_parameters()
+        if not self.current_city or self.current_bearing is None or not distance_params:
             return
+        distances = list(range(
+            distance_params['step'],
+            distance_params['max'] + 1,
+            distance_params['step']
+        ))
 
         #self.view.set_ui_enabled(False)
         #self.view.set_progress(5, "Starting analysis")
@@ -65,7 +70,7 @@ class MainPresenter:
             city=self.current_city,
             bearings=[self.current_bearing],
             month=self.current_month,
-            distances=selected_distances,
+            distances=distances,
             fetcher=self.fetcher,
             exporter=self.exporter
         )
@@ -80,12 +85,3 @@ class MainPresenter:
         # self.worker.data_ready_for_export.connect(self.on_data_ready)
 
         self.thread.start()
-
-        '''self.model.run(
-            city=self.current_city,
-            bearings=[self.current_bearing],
-            month=self.current_month,
-            distances=selected_distances,
-            fetcher=self.fetcher,
-            exporter=self.exporter
-        )'''

@@ -1,6 +1,6 @@
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtWidgets import QMainWindow, QPushButton, QVBoxLayout, QWidget, QComboBox, QLabel, QFrame, QSplitter, \
-    QGroupBox, QGridLayout, QCheckBox
+    QGroupBox, QGridLayout, QCheckBox, QSpinBox
 
 import config
 from models import City
@@ -36,26 +36,28 @@ class MainWindow(QMainWindow):
         self.bearing_combo_box = QComboBox()
 
         self.distances_group_box = QGroupBox("Distances (км)")
-        distances_grid_layout = QGridLayout()
-        self.distances_group_box.setLayout(distances_grid_layout)
+        distances_layout = QGridLayout()
+        self.distances_group_box.setLayout(distances_layout)
+
+        step_label = QLabel("Step:")
+        self.step_spinbox = QSpinBox()
+        self.step_spinbox.setRange(1, 100)
+        self.step_spinbox.setValue(10)
+
+        max_dist_label = QLabel("Max:")
+        self.max_dist_spinbox = QSpinBox()
+        self.max_dist_spinbox.setRange(10, 500)
+        self.max_dist_spinbox.setValue(200)
+
+        distances_layout.addWidget(step_label, 0, 0)
+        distances_layout.addWidget(self.step_spinbox, 0, 1)
+        distances_layout.addWidget(max_dist_label, 1, 0)
+        distances_layout.addWidget(self.max_dist_spinbox, 1, 1)
 
         month_label = QLabel("Month:")
         self.month_combo_box = QComboBox()
 
         self.distance_checkboxes: list[QCheckBox] = []
-
-        row, col = 0, 0
-        for distance in config.DISTANCES_KM:
-            checkbox = QCheckBox(str(distance))
-            checkbox.setChecked(True)
-            checkbox.setProperty("distance_value", distance)
-            self.distance_checkboxes.append(checkbox)
-            distances_grid_layout.addWidget(checkbox, row, col)
-
-            col += 1
-            if col > 1:
-                col = 0
-                row += 1
 
         self.start_button = QPushButton("Start")
         self.start_button.setMinimumHeight(40)
@@ -126,9 +128,8 @@ class MainWindow(QMainWindow):
         for number, name in config.MONTHS.items():
             self.month_combo_box.addItem(name, userData=number)
 
-    def get_selected_distances(self) -> list[int]:
-        selected = []
-        for checkbox in self.distance_checkboxes:
-            if checkbox.isChecked():
-                selected.append(checkbox.property("distance_value"))
-        return selected
+    def get_distance_parameters(self) -> dict:
+        return {
+            'step': self.step_spinbox.value(),
+            'max': self.max_dist_spinbox.value()
+        }
