@@ -23,7 +23,7 @@ EXPORTS_FOLDER = "exports"
 CITIES = {
     "moscow": City(id="moscow", name="Москва", coordinates=(52.033635, 113.501049), routes={}),
     "saint_petersburg": City(id="saint_petersburg", name="Санкт-Петербург", coordinates=(59.9343, 30.3351), routes={}),
-    "novosibirsk": City(id="novosibirsk", name="Новосибирск", coordinates=(55.0301, 82.9204), routes={}),
+    "novosibirsk": City(id="novosibirsk", name="Новосибирск", coordinates=(55.030204, 82.920430), routes={}),
     "ekaterinburg": City(id="ekaterinburg", name="Екатеринбург", coordinates=(56.8380, 60.5975), routes={}),
     "kazan": City(id="kazan", name="Казань", coordinates=(55.7961, 49.1064), routes={}),
     "nizhny_novgorod": City(id="nizhny_novgorod", name="Нижний Новгород", coordinates=(56.3269, 44.0059), routes={}),
