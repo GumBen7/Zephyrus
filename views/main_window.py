@@ -24,6 +24,7 @@ class MainWindow(QMainWindow):
     data_route_selected_signal = Signal(MonthlyDataRoute)
 
     plot_clicked_signal = Signal(float, float, int)  # x, y, button (1 for left, 3 for right)
+    export_data_signal = Signal()  # НОВОЕ: Сигнал для экспорта данных
 
     def __init__(self):
         super().__init__()
@@ -37,7 +38,7 @@ class MainWindow(QMainWindow):
         self._plot_point1_marker = None
         self._plot_point2_marker = None
         self.current_plotted_route: MonthlyDataRoute | None = None
-        self._max_actual_density_on_plot: float = 0.0  # НОВОЕ: храним максимальную плотность фактических данных на текущем графике
+        self._max_actual_density_on_plot: float = 0.0
 
         self._init_ui()
         self._init_signals()
@@ -81,6 +82,11 @@ class MainWindow(QMainWindow):
         self.start_button = QPushButton("Начать анализ")
         self.start_button.setMinimumHeight(40)
 
+        # НОВОЕ: Кнопка экспорта
+        self.export_button = QPushButton("Экспортировать данные")
+        self.export_button.setMinimumHeight(40)
+        self.export_button.setEnabled(False)  # Изначально отключена, пока нет данных
+
         self.data_tree_view = QTreeView()
         self.tree_model = QStandardItemModel()
         self.data_tree_view.setModel(self.tree_model)
@@ -95,6 +101,7 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.distances_group_box)
         controls_layout.addSpacing(20)
         controls_layout.addWidget(self.start_button)
+        controls_layout.addWidget(self.export_button)  # НОВОЕ: Добавляем кнопку экспорта
         controls_layout.addWidget(QLabel("Загруженные данные:"))
         controls_layout.addWidget(self.data_tree_view)
         controls_layout.addStretch()
@@ -126,6 +133,7 @@ class MainWindow(QMainWindow):
 
     def _init_signals(self):
         self.start_button.clicked.connect(self.start_analysis_signal.emit)
+        self.export_button.clicked.connect(self.export_data_signal.emit)  # НОВОЕ: Подключаем сигнал к кнопке
         self.city_combo_box.currentIndexChanged.connect(self._on_city_changed)
         self.bearing_combo_box.currentIndexChanged.connect(self._on_bearing_changed)
         self.month_combo_box.currentIndexChanged.connect(self._on_month_changed)
@@ -196,14 +204,17 @@ class MainWindow(QMainWindow):
         self.tree_model.setHorizontalHeaderLabels(['Загруженные данные'])
         root_node = self.tree_model.invisibleRootItem()
 
+        has_any_valid_routes = False  # НОВОЕ: Флаг для определения, есть ли вообще данные для экспорта
+
         for city_id, city_obj in cities_data.items():
-            has_valid_routes = False
+            has_valid_routes_for_city = False
             for route_r in city_obj.routes:
                 if isinstance(route_r, MonthlyDataRoute) and route_r.densities:
                     if any(not math.isnan(val) for val in route_r.densities.values()):
-                        has_valid_routes = True
+                        has_valid_routes_for_city = True
+                        has_any_valid_routes = True  # Обновляем глобальный флаг
                         break
-            if not has_valid_routes:
+            if not has_valid_routes_for_city:
                 continue
 
             city_item = QStandardItem(city_obj.name)
@@ -239,6 +250,8 @@ class MainWindow(QMainWindow):
                     route_item.appendRow(year_item)
 
         self.data_tree_view.expandAll()
+        self.export_button.setEnabled(has_any_valid_routes)  # НОВОЕ: Включаем/отключаем кнопку экспорта
+        # в зависимости от наличия данных
 
     def set_ui_enabled(self, enabled: bool):
         """Включает или отключает элементы управления UI."""
@@ -248,6 +261,8 @@ class MainWindow(QMainWindow):
         self.step_spinbox.setEnabled(enabled)
         self.max_dist_spinbox.setEnabled(enabled)
         self.start_button.setEnabled(enabled)
+        # self.export_button.setEnabled(enabled) # Эту строку убираем, чтобы логика включения/отключения кнопки
+        # экспорта была централизована в update_data_tree
         self.data_tree_view.setEnabled(enabled)
 
     def set_status_message(self, message: str):
@@ -292,34 +307,29 @@ class MainWindow(QMainWindow):
         self.current_plot_ax.set_title(
             f"Плотность NO2 для {config.CITIES[data_route.city_id].name}, {config.BEARINGS[data_route.bearing]}°, {config.MONTHS[data_route.month]} ({data_route.year})")
         self.current_plot_ax.set_xlabel("Расстояние от центра (км)")
-        self.current_plot_ax.set_ylabel(r"Плотность NO2 ($\mu$моль/м$^2$)")
+        self.current_plot_ax.set_ylabel("Плотность NO2 ($\mu$моль/м$^2$)")
         self.current_plot_ax.grid(True)
         self.current_plot_ax.legend()
 
-        # НОВОЕ: сохраняем максимальную плотность фактических данных
         self._max_actual_density_on_plot = max(densities)
 
-        self._update_ylim_auto(densities)  # Передаем только densities для основного графика
+        self._update_ylim_auto(densities)
 
         self.canvas.draw()
 
-    # --- Измененный метод: теперь использует _max_actual_density_on_plot для динамической обрезки ---
     def plot_single_point_model(self, point1_coords: tuple[float, float], model_distances: list[float],
                                 model_densities: list[float]):
         if self.current_plot_ax is None: return
 
-        self.clear_model_elements()  # Очищаем все (только если они были добавлены на текущий график)
+        self.clear_model_elements()
 
         self._plot_point1_marker, = self.current_plot_ax.plot(
             point1_coords[0], point1_coords[1], marker='X', color='green', markersize=10, linestyle='None',
             label=f'Опорная точка 1: ({point1_coords[0]:.0f}км, {point1_coords[1]:.2f})'
         )
 
-        # --- НОВОЕ: Динамическая обрезка модельных плотностей относительно _max_actual_density_on_plot ---
-        # Обрезаем значения, если они выше _max_actual_density_on_plot + 50
         dynamic_clip_limit = self._max_actual_density_on_plot + 50
         clipped_model_densities = [min(val, dynamic_clip_limit) for val in model_densities]
-        # --- Конец НОВОГО ---
 
         self._plot_model_line1, = self.current_plot_ax.plot(
             model_distances, clipped_model_densities, color='red', linestyle='--', label='Модель (Q = $\\Theta_1$/r)'
@@ -328,12 +338,11 @@ class MainWindow(QMainWindow):
         self.current_plot_ax.legend()
         self.canvas.draw()
 
-    # --- Измененный метод: теперь использует _max_actual_density_on_plot и theta2_value ---
     def plot_double_point_model(self, point1_coords: tuple[float, float], point2_coords: tuple[float, float],
                                 model_distances: list[float], model_densities: list[float], theta2_value: float):
         if self.current_plot_ax is None: return
 
-        self.clear_model_elements()  # Очищаем все (только если они были добавлены на текущий график)
+        self.clear_model_elements()
 
         self._plot_point1_marker, = self.current_plot_ax.plot(
             point1_coords[0], point1_coords[1], marker='X', color='green', markersize=10, linestyle='None',
@@ -344,11 +353,8 @@ class MainWindow(QMainWindow):
             label=f'Опорная точка 2: ({point2_coords[0]:.0f}км, {point2_coords[1]:.2f})'
         )
 
-        # --- НОВОЕ: Динамическая обрезка модельных плотностей относительно _max_actual_density_on_plot ---
-        # Обрезаем значения, если они выше _max_actual_density_on_plot + 50
         dynamic_clip_limit = self._max_actual_density_on_plot + 50
         clipped_model_densities = [min(val, dynamic_clip_limit) for val in model_densities]
-        # --- Конец НОВОГО ---
 
         self._plot_model_line2, = self.current_plot_ax.plot(
             model_distances, clipped_model_densities, color='purple', linestyle='-',
@@ -388,7 +394,7 @@ class MainWindow(QMainWindow):
                 densities_from_route = [q for q in self.current_plotted_route.densities.values() if not math.isnan(q)]
                 self._update_ylim_auto(densities_from_route)
             else:
-                self._update_ylim_auto([])  # Вызовем с пустым списком для дефолтного масштаба
+                self._update_ylim_auto([])
 
             self.current_plot_ax.legend()
             self.canvas.draw()
@@ -401,7 +407,7 @@ class MainWindow(QMainWindow):
             return
 
         if not current_visible_densities:
-            self.current_plot_ax.set_ylim(0, 1)  # Разумные пределы по умолчанию
+            self.current_plot_ax.set_ylim(0, 1)
             return
 
         min_val = min(current_visible_densities)
@@ -428,7 +434,6 @@ class MainWindow(QMainWindow):
 
         self.current_plot_ax.set_ylim(y_min_padded, y_max_padded)
 
-    # --- ИЗМЕНЕННЫЙ метод: теперь обрезает модельные плотности на основе max_actual_density ---
     def _update_ylim_dynamic(self, model_densities_clipped: list[float], dynamic_clip_limit: float):
         """
         Обновляет пределы оси Y, основываясь на исходных и обрезанных модельных плотностях.
@@ -438,12 +443,10 @@ class MainWindow(QMainWindow):
             return
 
         all_densities_to_consider = []
-        # Исходные данные (которые уже отфильтрованы от NaN в plot_data)
         for val in self.current_plotted_route.densities.values():
             if not math.isnan(val):
                 all_densities_to_consider.append(val)
 
-        # Обрезанные модельные данные
         for val in model_densities_clipped:
             if not math.isnan(val):
                 all_densities_to_consider.append(val)
@@ -474,9 +477,7 @@ class MainWindow(QMainWindow):
             if y_min_padded < 0 and min_val_combined >= 0:
                 y_min_padded = 0
 
-        # НОВОЕ: Теперь верхний предел оси Y гарантированно не меньше dynamic_clip_limit (плюс небольшой отступ)
-        # Это предотвращает обрезание фактических данных, если dynamic_clip_limit оказался ниже них.
-        actual_max_plot_limit = dynamic_clip_limit + (dynamic_clip_limit * padding_factor * 0.1)  # Меньший отступ
+        actual_max_plot_limit = dynamic_clip_limit + (dynamic_clip_limit * padding_factor * 0.1)
         y_max_padded = max(y_max_padded, actual_max_plot_limit)
 
         self.current_plot_ax.set_ylim(y_min_padded, y_max_padded)

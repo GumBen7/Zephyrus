@@ -55,6 +55,7 @@ class MainPresenter(QObject):
 
     def _connect_view_signals(self):
         self.view.start_analysis_signal.connect(self.run_analysis)
+        self.view.export_data_signal.connect(self.export_all_data)  # НОВОЕ: Подключаем сигнал экспорта
         self.view.city_selected_signal.connect(self.on_city_selected)
         self.view.bearing_selected_signal.connect(self.on_bearing_selected)
         self.view.month_selected_signal.connect(self.on_month_changed)
@@ -118,7 +119,6 @@ class MainPresenter(QObject):
         print("run_analysis called.")
         distance_params = self.view.get_distance_parameters()
         if not self.current_city or self.current_bearing is None or self.current_month is None or not distance_params:
-            print("Missing parameters for analysis. Aborting.")
             self.view.set_status_message("Отсутствуют параметры для анализа.")
             return
         distances = list(range(
@@ -133,7 +133,6 @@ class MainPresenter(QObject):
         self.view.set_status_message("Начинаем анализ...")
 
         if self.thread and self.thread.isRunning():
-            print("Worker thread is already running, not starting a new one.")
             self.view.set_status_message("Анализ уже запущен.")
             self.view.set_ui_enabled(True)
             return
@@ -164,6 +163,28 @@ class MainPresenter(QObject):
 
         self.thread.start()
         print("Thread started.")
+
+    @Slot()  # НОВОЕ: Слот для экспорта всех загруженных данных
+    def export_all_data(self):
+        if not self.model.cities:
+            self.view.set_status_message("Нет загруженных данных для экспорта.")
+            return
+
+        self.view.set_ui_enabled(False)
+        self.view.set_status_message("Начинаем экспорт данных...")
+
+        # Экспорт может занять время, возможно, его тоже стоит вынести в отдельный поток
+        # Но для начала сделаем просто в основном потоке, если не будет зависаний UI
+        try:
+            self.model.export_all_loaded_data(self.model.exporter)  # НОВОЕ: Вызов метода экспорта из модели
+            self.view.set_status_message(f"Данные успешно экспортированы в папку '{config.EXPORTS_FOLDER}'.")
+        except Exception as e:
+            self.view.set_status_message(f"Ошибка при экспорте данных: {e}")
+            print(f"Error during export: {e}")
+        finally:
+            self.view.set_ui_enabled(True)
+            self.view.update_data_tree(
+                self.model.cities)  # Обновляем дерево, чтобы включить кнопку экспорта, если она была отключена
 
     @Slot(float, float, int)
     def on_plot_clicked(self, clicked_x: float, clicked_y: float, button: int):
@@ -202,10 +223,8 @@ class MainPresenter(QObject):
                 self._calculated_theta2 = 0.0
 
                 model_densities_single = [self._calculated_theta1 / r for r in model_generation_distances if r > 0]
-                # --- Изменение: больше не передаем q1_density, MainWindow берет его из своего состояния ---
                 self.view.plot_single_point_model(self._selected_point1, model_generation_distances,
                                                   model_densities_single)
-                # --- Конец изменения ---
                 self.view.set_status_message(
                     f"Первая опорная точка выбрана (r={nearest_dist:.0f}км, q={nearest_density:.2f}). Нажмите еще раз для второй точки или ПКМ для отмены.")
 
@@ -240,11 +259,9 @@ class MainPresenter(QObject):
                         else:
                             model_densities_double.append(np.nan)
 
-                    # --- Изменение: больше не передаем q1_density ---
                     self.view.plot_double_point_model(self._selected_point1, self._selected_point2,
                                                       model_generation_distances, model_densities_double,
                                                       self._calculated_theta2)
-                    # --- Конец изменения ---
 
                     self.view.set_status_message(
                         f"Модель построена. $\\Theta_1$ = {self._calculated_theta1:.2f}, Фон ($\\Theta_2$) = {self._calculated_theta2:.2f}")
@@ -263,10 +280,8 @@ class MainPresenter(QObject):
                 self._calculated_theta2 = 0.0
 
                 model_densities_single = [self._calculated_theta1 / r for r in model_generation_distances if r > 0]
-                # --- Изменение: больше не передаем q1_density ---
                 self.view.plot_single_point_model(self._selected_point1, model_generation_distances,
                                                   model_densities_single)
-                # --- Конец изменения ---
                 self.view.set_status_message("Вторая опорная точка отменена. Построена модель по первой точке.")
             elif self._selected_point1:
                 self._selected_point1 = None
