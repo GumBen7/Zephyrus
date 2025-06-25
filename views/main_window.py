@@ -1,17 +1,15 @@
-# /home/gumben7/PycharmProjects/Zephyrus/views/main_window.py
-import math
 import threading
+import math
 
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QStandardItemModel, QStandardItem
 from PySide6.QtWidgets import QMainWindow, QPushButton, QVBoxLayout, QWidget, QComboBox, QLabel, QFrame, QSplitter, \
     QGroupBox, QGridLayout, QCheckBox, QSpinBox, QTreeView, QStatusBar
 
-# --- Добавляем импорты для Matplotlib ---
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
-# --- Конец импортов Matplotlib ---
+import numpy as np  # Для работы с массивами и NaN
 
 import config
 from models import City
@@ -24,7 +22,6 @@ class MainWindow(QMainWindow):
     month_selected_signal = Signal(int)
     start_analysis_signal = Signal()
     data_route_selected_signal = Signal(MonthlyDataRoute)
-    # --- НОВЫЙ СИГНАЛ: Отправляет координаты клика по графику ---
     plot_clicked_signal = Signal(float, float)
 
     def __init__(self):
@@ -33,10 +30,10 @@ class MainWindow(QMainWindow):
         self.resize(1200, 700)
         self.setMinimumSize(800, 500)
 
-        # Переменные для хранения текущего графика и выбранной точки, чтобы их очищать/перерисовывать
         self.current_plot_ax = None
         self.current_model_line = None
         self.current_selected_point_marker = None
+        self.current_plotted_route: MonthlyDataRoute | None = None  # Добавим для хранения текущего маршрута
 
         self._init_ui()
         self._init_signals()
@@ -131,12 +128,10 @@ class MainWindow(QMainWindow):
         self.bearing_combo_box.currentIndexChanged.connect(self._on_bearing_changed)
         self.month_combo_box.currentIndexChanged.connect(self._on_month_changed)
         self.data_tree_view.clicked.connect(self._on_data_tree_item_clicked)
-        # --- НОВОЕ: Подключаем событие клика по канвасу ---
         self.canvas.mpl_connect('button_press_event', self._on_plot_click)
 
-    # --- НОВЫЙ МЕТОД: Обработчик клика по графику Matplotlib ---
     def _on_plot_click(self, event):
-        if event.inaxes and event.button == 1:  # Проверяем, что клик был внутри осей и это левая кнопка мыши
+        if event.inaxes and event.button == 1:
             print(f"Клик на графике: x={event.xdata:.2f}, y={event.ydata:.2f}")
             self.plot_clicked_signal.emit(event.xdata, event.ydata)
 
@@ -161,7 +156,8 @@ class MainWindow(QMainWindow):
         if item:
             data_obj = item.data()
             if isinstance(data_obj, MonthlyDataRoute):
-                print(f"Выбран маршрут: Bearing={data_obj.bearing}, Month={data_obj.month}, Year={data_obj.year}. Densities: {data_obj.densities}")
+                print(
+                    f"Выбран маршрут: Bearing={data_obj.bearing}, Month={data_obj.month}, Year={data_obj.year}. Densities: {data_obj.densities}")
                 self.data_route_selected_signal.emit(data_obj)
 
     def populate_cities(self):
@@ -196,9 +192,7 @@ class MainWindow(QMainWindow):
         for city_id, city_obj in cities_data.items():
             has_valid_routes = False
             for route_r in city_obj.routes:
-                # Теперь проверяем, что densities не пуст, а не на 'nan' напрямую
                 if isinstance(route_r, MonthlyDataRoute) and route_r.densities:
-                    # Дополнительная проверка, что в densities есть хотя бы одно не-nan значение
                     if any(not math.isnan(val) for val in route_r.densities.values()):
                         has_valid_routes = True
                         break
@@ -213,7 +207,6 @@ class MainWindow(QMainWindow):
             routes_by_bearing_month: dict[tuple[int, int], list[MonthlyDataRoute]] = {}
             for route_r in city_obj.routes:
                 if isinstance(route_r, MonthlyDataRoute) and route_r.densities:
-                    # Убедимся, что есть хотя бы одно не-nan значение, чтобы отображать в дереве
                     if any(not math.isnan(val) for val in route_r.densities.values()):
                         key = (route_r.bearing, route_r.month)
                         if key not in routes_by_bearing_month:
@@ -257,6 +250,7 @@ class MainWindow(QMainWindow):
         Отрисовывает базовый график плотности NO2 по расстоянию для выбранного маршрута.
         Сбрасывает второй график и маркер.
         """
+        self.current_plotted_route = data_route  # Сохраняем текущий маршрут
         self.figure.clear()
         self.current_plot_ax = self.figure.add_subplot(111)
 
@@ -266,12 +260,11 @@ class MainWindow(QMainWindow):
         sorted_densities = sorted(data_route.densities.items())
 
         for dist, density in sorted_densities:
-            # Игнорируем NaN значения при отрисовке основного графика
-            if not math.isnan(density):
+            if not math.isnan(density):  # Игнорируем NaN при отрисовке
                 distances.append(dist)
                 densities.append(density)
 
-        if not distances: # Если все значения NaN, то ничего не рисуем
+        if not distances:
             self.current_plot_ax.text(0.5, 0.5, "Нет данных для отображения",
                                       horizontalalignment='center', verticalalignment='center',
                                       transform=self.current_plot_ax.transAxes, fontsize=14, color='gray')
@@ -279,11 +272,28 @@ class MainWindow(QMainWindow):
             return
 
         self.current_plot_ax.plot(distances, densities, marker='o', linestyle='-', label='Полученные данные')
-        self.current_plot_ax.set_title(f"Плотность NO2 для {config.CITIES[data_route.city_id].name}, {config.BEARINGS[data_route.bearing]}°, {config.MONTHS[data_route.month]} ({data_route.year})")
+        self.current_plot_ax.set_title(
+            f"Плотность NO2 для {config.CITIES[data_route.city_id].name}, {config.BEARINGS[data_route.bearing]}°, {config.MONTHS[data_route.month]} ({data_route.year})")
         self.current_plot_ax.set_xlabel("Расстояние от центра (км)")
-        self.current_plot_ax.set_ylabel(r"Плотность NO2 ($\mu$моль/м$^2$)") # LaTeX для мкмоль/м^2
+        self.current_plot_ax.set_ylabel(r"Плотность NO2 ($\mu$моль/м$^2$)")
         self.current_plot_ax.grid(True)
-        self.current_plot_ax.legend() # Показываем легенду для основного графика
+        self.current_plot_ax.legend()
+
+        # --- НОВОЕ: Автоматическая настройка пределов оси Y для основного графика ---
+        min_density = min(densities)
+        max_density = max(densities)
+        # Добавляем небольшой отступ, чтобы точки не прилипали к границам
+        padding_factor = 0.1  # 10% от диапазона
+        y_range = max_density - min_density
+        y_min_padded = min_density - (y_range * padding_factor) if y_range > 0 else min_density * 0.9
+        y_max_padded = max_density + (y_range * padding_factor) if y_range > 0 else max_density * 1.1
+
+        # Убедимся, что y_min_padded не уходит слишком низко, если min_density очень мало
+        if y_min_padded < 0 and min_density >= 0:
+            y_min_padded = 0
+
+        self.current_plot_ax.set_ylim(y_min_padded, y_max_padded)
+        # --- Конец настройки пределов ---
 
         # Сбрасываем модельный график и маркер при новой отрисовке основного
         self.current_model_line = None
@@ -291,13 +301,13 @@ class MainWindow(QMainWindow):
 
         self.canvas.draw()
 
-    # --- НОВЫЙ МЕТОД: Отрисовывает модельный график и маркер ---
-    def plot_model_data(self, model_distances: list[float], model_densities: list[float], selected_point: tuple[float, float]):
+    def plot_model_data(self, model_distances: list[float], model_densities: list[float],
+                        selected_point: tuple[float, float]):
         """
         Отрисовывает модельную функцию на существующем графике.
         selected_point: (расстояние, плотность) выбранной точки для маркера.
         """
-        if self.current_plot_ax is None:
+        if self.current_plot_ax is None or self.current_plotted_route is None:
             return
 
         # Удаляем предыдущую модельную линию и маркер, если они существуют
@@ -317,9 +327,35 @@ class MainWindow(QMainWindow):
         self.current_selected_point_marker = self.current_plot_ax.plot(
             selected_point[0], selected_point[1], marker='X', color='green', markersize=10, linestyle='None',
             label=f'Выбрано: ({selected_point[0]:.0f}км, {selected_point[1]:.2f})'
-        )[0] # [0] потому что plot возвращает список объектов Line2D
+        )[0]
 
-        # Обновляем легенду, чтобы включить новый элемент
-        self.current_plot_ax.legend()
+        # --- НОВОЕ: Автоматическая настройка пределов оси Y для ОБЕИХ графиков ---
+        all_densities = []
+        # Добавляем исходные данные (без NaN)
+        for val in self.current_plotted_route.densities.values():
+            if not math.isnan(val):
+                all_densities.append(val)
+        # Добавляем модельные данные (без NaN, если они вдруг там есть)
+        for val in model_densities:
+            if not math.isnan(val):
+                all_densities.append(val)
 
+        if not all_densities:  # Если нет данных вообще
+            return
+
+        min_combined_density = min(all_densities)
+        max_combined_density = max(all_densities)
+
+        padding_factor = 0.1
+        y_range = max_combined_density - min_combined_density
+        y_min_padded = min_combined_density - (y_range * padding_factor) if y_range > 0 else min_combined_density * 0.9
+        y_max_padded = max_combined_density + (y_range * padding_factor) if y_range > 0 else max_combined_density * 1.1
+
+        if y_min_padded < 0 and min_combined_density >= 0:
+            y_min_padded = 0  # Не опускаемся ниже 0, если исходные данные >= 0
+
+        self.current_plot_ax.set_ylim(y_min_padded, y_max_padded)
+        # --- Конец настройки пределов ---
+
+        self.current_plot_ax.legend()  # Обновляем легенду
         self.canvas.draw()
