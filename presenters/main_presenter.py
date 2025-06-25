@@ -13,12 +13,6 @@ from views.main_window import MainWindow
 
 
 class MainPresenter(QObject):
-    # Track selected points and model parameters
-    _selected_point1: tuple[float, float] | None = None  # (r, q)
-    _selected_point2: tuple[float, float] | None = None  # (r, q)
-    _calculated_theta1: float | None = None
-    _calculated_theta2: float | None = None
-
     def on_progress_update(self, percent: int, message: str):
         self.view.set_status_message(f"Прогресс: {percent}%, {message}")
         print(
@@ -36,6 +30,13 @@ class MainPresenter(QObject):
         self.current_bearing: int | None = None
         self.current_month: int | None = None
         self.current_selected_data_route: MonthlyDataRoute | None = None
+
+        # --- Инициализация переменных состояния как экземпляровых ---
+        self._selected_point1: tuple[float, float] | None = None  # (r, q)
+        self._selected_point2: tuple[float, float] | None = None  # (r, q)
+        self._calculated_theta1: float | None = None
+        self._calculated_theta2: float | None = None
+        # --- Конец инициализации ---
 
         self._connect_view_signals()
 
@@ -203,9 +204,9 @@ class MainPresenter(QObject):
                 return
 
             if self._selected_point1 is None:
-                # Первый клик
+                # Первый клик (или после полного сброса): выбираем первую опорную точку
                 self._selected_point1 = (nearest_dist, nearest_density)
-                self._selected_point2 = None  # Сбросим вторую точку, если она была
+                self._selected_point2 = None  # Сбрасываем вторую точку, если она была выбрана ранее
 
                 # Рассчитываем Theta1 для модели q = Theta1/r
                 self._calculated_theta1 = nearest_density * nearest_dist
@@ -218,7 +219,8 @@ class MainPresenter(QObject):
                     f"Первая опорная точка выбрана (r={nearest_dist:.0f}км, q={nearest_density:.2f}). Нажмите еще раз для второй точки или ПКМ для отмены.")
 
             else:
-                # Второй клик
+                # Второй клик: выбираем вторую опорную точку
+                # Проверяем, чтобы вторая точка отличалась от первой
                 if nearest_dist == self._selected_point1[0]:
                     self.view.set_status_message("Выберите вторую точку на другом расстоянии.")
                     return
@@ -257,7 +259,7 @@ class MainPresenter(QObject):
                         else:
                             model_densities_double.append(np.nan)  # Деление на ноль, если r = 0
 
-                    # --- Изменение: Передаем _calculated_theta2 в plot_double_point_model ---
+                    # --- Передаем _calculated_theta2 в plot_double_point_model ---
                     self.view.plot_double_point_model(self._selected_point1, self._selected_point2,
                                                       model_generation_distances, model_densities_double,
                                                       self._calculated_theta2)
@@ -277,7 +279,7 @@ class MainPresenter(QObject):
                 self._calculated_theta2 = None
 
                 # Перерисовываем модель по одной точке
-                r1, q1 = self._selected_point1
+                r1, q1 = self._selected_point1  # <- Эта строка теперь безопасна, если _selected_point1 всегда установлен
                 self._calculated_theta1 = q1 * r1
                 self._calculated_theta2 = 0.0  # Возвращаем фон к 0 для простой модели
 

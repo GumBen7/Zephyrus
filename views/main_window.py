@@ -23,7 +23,6 @@ class MainWindow(QMainWindow):
     start_analysis_signal = Signal()
     data_route_selected_signal = Signal(MonthlyDataRoute)
 
-    # --- Измененный сигнал для кликов по графику: теперь передает кнопку мыши ---
     plot_clicked_signal = Signal(float, float, int)  # x, y, button (1 for left, 3 for right)
 
     def __init__(self):
@@ -131,23 +130,19 @@ class MainWindow(QMainWindow):
         self.bearing_combo_box.currentIndexChanged.connect(self._on_bearing_changed)
         self.month_combo_box.currentIndexChanged.connect(self._on_month_changed)
         self.data_tree_view.clicked.connect(self._on_data_tree_item_clicked)
-        # --- Подключение обработчика событий мыши к канвасу Matplotlib ---
         self.canvas.mpl_connect('button_press_event', self._on_plot_click)
 
-    # --- Измененный обработчик кликов по графику ---
     def _on_plot_click(self, event):
-        if event.inaxes:  # Убедимся, что клик был внутри области графика
-            x_clicked = event.xdata  # Координата по оси X (расстояние)
-            y_clicked = event.ydata  # Координата по оси Y (плотность)
-            button = event.button  # 1 для левой, 3 для правой
+        if event.inaxes:
+            x_clicked = event.xdata
+            y_clicked = event.ydata
+            button = event.button
             print(f"Клик на графике: x={x_clicked:.2f}, y={y_clicked:.2f}, кнопка={button}")
             self.plot_clicked_signal.emit(x_clicked, y_clicked, button)
         else:
             print("Клик вне области графика.")
-            # Если клик вне осей, но это правая кнопка, все равно можно попробовать отменить
             if event.button == 3:
-                self.plot_clicked_signal.emit(0.0, 0.0,
-                                              event.button)  # Передаем фиктивные координаты, но правильную кнопку
+                self.plot_clicked_signal.emit(0.0, 0.0, event.button)
 
     def _on_city_changed(self, index: int):
         city_data = self.city_combo_box.itemData(index)
@@ -264,9 +259,16 @@ class MainWindow(QMainWindow):
         Отрисовывает базовый график плотности NO2 по расстоянию для выбранного маршрута.
         Сбрасывает все модельные элементы.
         """
-        self.current_plotted_route = data_route  # Сохраняем текущий маршрут
-        self.figure.clear()
+        self.current_plotted_route = data_route
+        self.figure.clear()  # Полностью очищаем фигуру (и все старые оси/артисты)
         self.current_plot_ax = self.figure.add_subplot(111)
+
+        # --- НОВОЕ: Сброс ссылок на старые объекты после figure.clear() ---
+        self._plot_model_line1 = None
+        self._plot_model_line2 = None
+        self._plot_point1_marker = None
+        self._plot_point2_marker = None
+        # --- Конец НОВОГО ---
 
         distances = []
         densities = []
@@ -274,7 +276,7 @@ class MainWindow(QMainWindow):
         sorted_densities = sorted(data_route.densities.items())
 
         for dist, density in sorted_densities:
-            if not math.isnan(density):  # Игнорируем NaN при отрисовке
+            if not math.isnan(density):
                 distances.append(dist)
                 densities.append(density)
 
@@ -283,48 +285,33 @@ class MainWindow(QMainWindow):
                                       horizontalalignment='center', verticalalignment='center',
                                       transform=self.current_plot_ax.transAxes, fontsize=14, color='gray')
             self.canvas.draw()
-            # Важно: если данных нет, мы все равно должны очистить модельные элементы
-            self.clear_model_elements()
+            # Важно: если данных нет, мы все равно должны вызвать _update_ylim, чтобы оси были адекватны
+            self._update_ylim([])  # Передаем пустой список, чтобы установить дефолтный масштаб
             return
 
         self.current_plot_ax.plot(distances, densities, marker='o', linestyle='-', label='Полученные данные')
         self.current_plot_ax.set_title(
             f"Плотность NO2 для {config.CITIES[data_route.city_id].name}, {config.BEARINGS[data_route.bearing]}°, {config.MONTHS[data_route.month]} ({data_route.year})")
         self.current_plot_ax.set_xlabel("Расстояние от центра (км)")
-        self.current_plot_ax.set_ylabel("Плотность NO2 ($\mu$моль/м$^2$)")
+        self.current_plot_ax.set_ylabel(r"Плотность NO2 ($\mu$моль/м$^2$)")
         self.current_plot_ax.grid(True)
         self.current_plot_ax.legend()
 
-        min_density = min(densities)
-        max_density = max(densities)
-        padding_factor = 0.1  # 10% от диапазона
-        y_range = max_density - min_density
-        y_min_padded = min_density - (y_range * padding_factor) if y_range > 0 else min_density * 0.9
-        y_max_padded = max_density + (y_range * padding_factor) if y_range > 0 else max_density * 1.1
-
-        if y_min_padded < 0 and min_density >= 0:
-            y_min_padded = 0
-
-        self.current_plot_ax.set_ylim(y_min_padded, y_max_padded)
-
-        self.clear_model_elements()  # Очищаем модельные элементы при новой отрисовке основного графика
+        self._update_ylim(densities)  # Передаем только densities для основного графика
 
         self.canvas.draw()
 
-    # --- НОВЫЙ МЕТОД: Отрисовывает модель по одной точке ---
     def plot_single_point_model(self, point1_coords: tuple[float, float], model_distances: list[float],
                                 model_densities: list[float]):
         if self.current_plot_ax is None: return
 
-        self.clear_model_elements()  # Очищаем все, чтобы нарисовать только это
+        self.clear_model_elements()  # Очищаем все (только если они были добавлены на текущий график)
 
-        # Отрисовываем первую опорную точку
         self._plot_point1_marker, = self.current_plot_ax.plot(
             point1_coords[0], point1_coords[1], marker='X', color='green', markersize=10, linestyle='None',
             label=f'Опорная точка 1: ({point1_coords[0]:.0f}км, {point1_coords[1]:.2f})'
         )
 
-        # Отрисовываем модельную линию q = Theta1/r
         self._plot_model_line1, = self.current_plot_ax.plot(
             model_distances, model_densities, color='red', linestyle='--', label='Модель (Q = $\\Theta_1$/r)'
         )
@@ -332,15 +319,12 @@ class MainWindow(QMainWindow):
         self.current_plot_ax.legend()
         self.canvas.draw()
 
-    # --- НОВЫЙ МЕТОД: Отрисовывает модель по двум точкам ---
-    # Теперь принимает theta2_value для отображения в легенде
     def plot_double_point_model(self, point1_coords: tuple[float, float], point2_coords: tuple[float, float],
                                 model_distances: list[float], model_densities: list[float], theta2_value: float):
         if self.current_plot_ax is None: return
 
-        self.clear_model_elements()  # Очищаем все, чтобы нарисовать только это
+        self.clear_model_elements()  # Очищаем все (только если они были добавлены на текущий график)
 
-        # Отрисовываем обе опорные точки
         self._plot_point1_marker, = self.current_plot_ax.plot(
             point1_coords[0], point1_coords[1], marker='X', color='green', markersize=10, linestyle='None',
             label=f'Опорная точка 1: ({point1_coords[0]:.0f}км, {point1_coords[1]:.2f})'
@@ -350,86 +334,83 @@ class MainWindow(QMainWindow):
             label=f'Опорная точка 2: ({point2_coords[0]:.0f}км, {point2_coords[1]:.2f})'
         )
 
-        # Отрисовываем модельную линию q = Theta1/r + Theta2
-        # --- Изменение: Добавляем значение Theta2 в легенду ---
         self._plot_model_line2, = self.current_plot_ax.plot(
             model_distances, model_densities, color='purple', linestyle='-',
             label=f'Модель (Q = $\\Theta_1$/r + $\\Theta_2$, Фон $\\Theta_2$={theta2_value:.2f})'
         )
-        # --- Конец изменения ---
 
         self._update_ylim(model_densities + [point1_coords[1], point2_coords[1]])
         self.current_plot_ax.legend()
         self.canvas.draw()
 
-    # --- НОВЫЙ МЕТОД: Очищает только элементы модели ---
     def clear_model_elements(self):
-        """Удаляет все модельные линии и маркеры опорных точек с графика."""
-        if self.current_plot_ax:
-            if self._plot_model_line1:
-                self._plot_model_line1.remove()
-                self._plot_model_line1 = None
-            if self._plot_model_line2:
-                self._plot_model_line2.remove()
-                self._plot_model_line2 = None
-            if self._plot_point1_marker:
-                self._plot_point1_marker.remove()
-                self._plot_point1_marker = None
-            if self._plot_point2_marker:
-                self._plot_point2_marker.remove()
-                self._plot_point2_marker = None
+        """
+        Удаляет все модельные линии и маркеры опорных точек с графика.
+        Применяет remove() только если объект существует и привязан к текущему ax.
+        """
+        elements_to_remove = [
+            self._plot_model_line1,
+            self._plot_model_line2,
+            self._plot_point1_marker,
+            self._plot_point2_marker
+        ]
 
-            # --- НОВОЕ: Перемасштабирование Y-оси после удаления всех модельных элементов ---
-            # Вызываем _update_ylim с пустым списком дополнительных плотностей,
-            # чтобы она пересчитала пределы только на основе current_plotted_route.densities.
+        for element in elements_to_remove:
+            # Проверяем, что элемент существует и привязан к текущим осям
+            if element and element.axes == self.current_plot_ax:
+                element.remove()
+
+        # Обнуляем ссылки после попытки удаления
+        self._plot_model_line1 = None
+        self._plot_model_line2 = None
+        self._plot_point1_marker = None
+        self._plot_point2_marker = None
+
+        if self.current_plot_ax:  # Убедимся, что оси существуют
+            # Перемасштабирование Y-оси после удаления всех модельных элементов
             if self.current_plotted_route and self.current_plotted_route.densities:
-                self._update_ylim([])
-            else:  # Если даже исходных данных нет, просто сбросим ylim (или оставим по умолчанию)
-                if self.current_plot_ax:
-                    self.current_plot_ax.autoscale_view(True, True, True)  # Автомасштаб по всем осям
-                    self.canvas.draw()
-            # --- Конец нового ---
+                densities_from_route = [q for q in self.current_plotted_route.densities.values() if not math.isnan(q)]
+                self._update_ylim(densities_from_route)
+            else:  # Если даже исходных данных нет
+                self._update_ylim([])  # Вызовем с пустым списком для дефолтного масштаба
 
             # Обновляем легенду после удаления элементов
             self.current_plot_ax.legend()
             self.canvas.draw()
 
-    # --- Вспомогательный метод для динамической настройки ylim ---
-    def _update_ylim(self, new_densities: list[float]):
+    def _update_ylim(self, current_visible_densities: list[float]):
         """
-        Обновляет пределы оси Y, включая текущие данные и новые модельные.
+        Обновляет пределы оси Y, основываясь на переданных плотностях.
         """
-        if self.current_plot_ax is None or self.current_plotted_route is None:
+        if self.current_plot_ax is None:
             return
 
-        all_densities = []
-        # Добавляем исходные данные (без NaN)
-        for val in self.current_plotted_route.densities.values():
-            if not math.isnan(val):
-                all_densities.append(val)
-        # Добавляем новые плотности (из модели или точек), исключая NaN
-        for val in new_densities:
-            if not math.isnan(val):
-                all_densities.append(val)
-
-        if not all_densities:  # Если нет данных вообще, то нечего масштабировать
+        if not current_visible_densities:  # Если нет данных для масштабирования
+            self.current_plot_ax.set_ylim(0, 1)  # Разумные пределы по умолчанию
+            # self.canvas.draw() # Нет необходимости здесь, вызывается из plot_data/clear_model_elements
             return
 
-        min_combined_density = min(all_densities)
-        max_combined_density = max(all_densities)
+        min_val = min(current_visible_densities)
+        max_val = max(current_visible_densities)
 
         padding_factor = 0.1
-        y_range = max_combined_density - min_combined_density
-        # Чтобы избежать деления на ноль, если диапазон равен 0 (например, все точки одинаковые)
+        y_range = max_val - min_val
+
         if y_range == 0:
-            y_range = max_combined_density * 0.2 if max_combined_density != 0 else 0.1  # Небольшой диапазон, если все значения одинаковые
+            if min_val == 0:
+                y_min_padded = -0.1
+                y_max_padded = 0.1
+            else:
+                y_min_padded = min_val * (1 - padding_factor)
+                y_max_padded = min_val * (1 + padding_factor)
+                if min_val > 0 and y_min_padded < 0:
+                    y_min_padded = 0
+        else:
+            y_min_padded = min_val - (y_range * padding_factor)
+            y_max_padded = max_val + (y_range * padding_factor)
 
-        y_min_padded = min_combined_density - (y_range * padding_factor)
-        y_max_padded = max_combined_density + (y_range * padding_factor)
-
-        # Не опускаемся ниже 0, если исходные данные >= 0
-        if y_min_padded < 0 and min_combined_density >= 0:
-            y_min_padded = 0
+            if y_min_padded < 0 and min_val >= 0:
+                y_min_padded = 0
 
         self.current_plot_ax.set_ylim(y_min_padded, y_max_padded)
-        self.canvas.draw()
+        # self.canvas.draw() # Нет необходимости здесь, вызывается из plot_data/clear_model_elements
