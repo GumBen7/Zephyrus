@@ -257,8 +257,12 @@ class MainPresenter(QObject):
                         else:
                             model_densities_double.append(np.nan)  # Деление на ноль, если r = 0
 
+                    # --- Изменение: Передаем _calculated_theta2 в plot_double_point_model ---
                     self.view.plot_double_point_model(self._selected_point1, self._selected_point2,
-                                                      model_generation_distances, model_densities_double)
+                                                      model_generation_distances, model_densities_double,
+                                                      self._calculated_theta2)
+                    # --- Конец изменения ---
+
                     self.view.set_status_message(
                         f"Модель построена. $\\Theta_1$ = {self._calculated_theta1:.2f}, Фон ($\\Theta_2$) = {self._calculated_theta2:.2f}")
 
@@ -290,4 +294,3 @@ class MainPresenter(QObject):
                 self.view.set_status_message("Выбор точек отменен. График сброшен.")
             else:
                 self.view.set_status_message("Нет выбранных точек для отмены.")
-

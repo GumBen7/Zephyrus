@@ -283,6 +283,8 @@ class MainWindow(QMainWindow):
                                       horizontalalignment='center', verticalalignment='center',
                                       transform=self.current_plot_ax.transAxes, fontsize=14, color='gray')
             self.canvas.draw()
+            # Важно: если данных нет, мы все равно должны очистить модельные элементы
+            self.clear_model_elements()
             return
 
         self.current_plot_ax.plot(distances, densities, marker='o', linestyle='-', label='Полученные данные')
@@ -295,12 +297,14 @@ class MainWindow(QMainWindow):
 
         min_density = min(densities)
         max_density = max(densities)
-        padding_factor = 0.1
+        padding_factor = 0.1  # 10% от диапазона
         y_range = max_density - min_density
         y_min_padded = min_density - (y_range * padding_factor) if y_range > 0 else min_density * 0.9
         y_max_padded = max_density + (y_range * padding_factor) if y_range > 0 else max_density * 1.1
+
         if y_min_padded < 0 and min_density >= 0:
             y_min_padded = 0
+
         self.current_plot_ax.set_ylim(y_min_padded, y_max_padded)
 
         self.clear_model_elements()  # Очищаем модельные элементы при новой отрисовке основного графика
@@ -329,8 +333,9 @@ class MainWindow(QMainWindow):
         self.canvas.draw()
 
     # --- НОВЫЙ МЕТОД: Отрисовывает модель по двум точкам ---
+    # Теперь принимает theta2_value для отображения в легенде
     def plot_double_point_model(self, point1_coords: tuple[float, float], point2_coords: tuple[float, float],
-                                model_distances: list[float], model_densities: list[float]):
+                                model_distances: list[float], model_densities: list[float], theta2_value: float):
         if self.current_plot_ax is None: return
 
         self.clear_model_elements()  # Очищаем все, чтобы нарисовать только это
@@ -346,10 +351,13 @@ class MainWindow(QMainWindow):
         )
 
         # Отрисовываем модельную линию q = Theta1/r + Theta2
+        # --- Изменение: Добавляем значение Theta2 в легенду ---
         self._plot_model_line2, = self.current_plot_ax.plot(
             model_distances, model_densities, color='purple', linestyle='-',
-            label='Модель (Q = $\\Theta_1$/r + $\\Theta_2$)'
+            label=f'Модель (Q = $\\Theta_1$/r + $\\Theta_2$, Фон $\\Theta_2$={theta2_value:.2f})'
         )
+        # --- Конец изменения ---
+
         self._update_ylim(model_densities + [point1_coords[1], point2_coords[1]])
         self.current_plot_ax.legend()
         self.canvas.draw()
@@ -370,6 +378,17 @@ class MainWindow(QMainWindow):
             if self._plot_point2_marker:
                 self._plot_point2_marker.remove()
                 self._plot_point2_marker = None
+
+            # --- НОВОЕ: Перемасштабирование Y-оси после удаления всех модельных элементов ---
+            # Вызываем _update_ylim с пустым списком дополнительных плотностей,
+            # чтобы она пересчитала пределы только на основе current_plotted_route.densities.
+            if self.current_plotted_route and self.current_plotted_route.densities:
+                self._update_ylim([])
+            else:  # Если даже исходных данных нет, просто сбросим ylim (или оставим по умолчанию)
+                if self.current_plot_ax:
+                    self.current_plot_ax.autoscale_view(True, True, True)  # Автомасштаб по всем осям
+                    self.canvas.draw()
+            # --- Конец нового ---
 
             # Обновляем легенду после удаления элементов
             self.current_plot_ax.legend()
@@ -393,7 +412,7 @@ class MainWindow(QMainWindow):
             if not math.isnan(val):
                 all_densities.append(val)
 
-        if not all_densities:
+        if not all_densities:  # Если нет данных вообще, то нечего масштабировать
             return
 
         min_combined_density = min(all_densities)
@@ -403,7 +422,7 @@ class MainWindow(QMainWindow):
         y_range = max_combined_density - min_combined_density
         # Чтобы избежать деления на ноль, если диапазон равен 0 (например, все точки одинаковые)
         if y_range == 0:
-            y_range = max_combined_density * 0.2  # Небольшой диапазон, если все значения одинаковые
+            y_range = max_combined_density * 0.2 if max_combined_density != 0 else 0.1  # Небольшой диапазон, если все значения одинаковые
 
         y_min_padded = min_combined_density - (y_range * padding_factor)
         y_max_padded = max_combined_density + (y_range * padding_factor)
