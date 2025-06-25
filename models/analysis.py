@@ -63,6 +63,7 @@ class Analysis:
 
                     # Создаем НОВЫЙ MonthlyDataRoute для каждого года, азимута и месяца
                     monthly_data_route = MonthlyDataRoute(
+                        city_id=city.id,
                         bearing=bearing,
                         year=year,
                         month=month,

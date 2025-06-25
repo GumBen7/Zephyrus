@@ -1,7 +1,7 @@
 # presenters/main_presenter.py
 import threading
 
-from PySide6.QtCore import QThread, Slot, QCoreApplication, Qt, QObject  # <-- ДОБАВИТЬ QObject
+from PySide6.QtCore import QThread, Slot, QCoreApplication, Qt, QObject
 
 import config
 from models import City
@@ -11,14 +11,14 @@ from presenters.analysis_worker import AnalysisWorker
 from views.main_window import MainWindow
 
 
-class MainPresenter(QObject):  # <-- НАСЛЕДУЕМ ОТ QObject
+class MainPresenter(QObject):
     def on_progress_update(self, percent: int, message: str):
         self.view.set_status_message(f"Прогресс: {percent}%, {message}")
         print(
             f"Progress update: {percent}%, {message} (Thread: {threading.current_thread().name} / QObject thread: {self.thread}, QApplication thread: {QCoreApplication.instance().thread()})")
 
     def __init__(self, view: MainWindow, model: Analysis):
-        super().__init__()  # <-- ОЧЕНЬ ВАЖНО: ВЫЗВАТЬ КОНСТРУКТОР QObject
+        super().__init__()
         self.view = view
         self.model = model
 
@@ -52,6 +52,7 @@ class MainPresenter(QObject):  # <-- НАСЛЕДУЕМ ОТ QObject
         self.view.city_selected_signal.connect(self.on_city_selected)
         self.view.bearing_selected_signal.connect(self.on_bearing_selected)
         self.view.month_selected_signal.connect(self.on_month_changed)
+        # Подключаем сигнал от View к слоту в Презентере
         self.view.data_route_selected_signal.connect(self.on_data_route_selected)
         print("View signals connected.")
 
@@ -67,11 +68,14 @@ class MainPresenter(QObject):  # <-- НАСЛЕДУЕМ ОТ QObject
         self.current_month = month
         print(f"Month selected: {month}")
 
+    @Slot(MonthlyDataRoute)  # Указываем тип аргумента для слота
     def on_data_route_selected(self, route: MonthlyDataRoute):
         """Слот для обработки выбора MonthlyDataRoute из дерева данных."""
         self.current_selected_data_route = route
         print(
-            f"Selected data route: Bearing={route.bearing}, Month={route.month}, Year={route.year}. Densities: {route.densities}")
+            f"Selected data route in presenter: Bearing={route.bearing}, Month={route.month}, Year={route.year}. Densities: {route.densities}")
+        # Вызываем метод отрисовки в View
+        self.view.plot_data(route)
 
     @Slot()
     def on_analysis_finished_in_model(self):
@@ -134,7 +138,7 @@ class MainPresenter(QObject):  # <-- НАСЛЕДУЕМ ОТ QObject
         self.worker.moveToThread(self.thread)
         print("Worker moved to thread.")
         print(
-            f"Worker's thread affinity after moveToThread: {threading.current_thread().name} (QObject thread: {self.worker.thread()}, QApplication thread: {QCoreApplication.instance().thread()})")
+            f"Worker's thread affinity after moveToThread: {threading.current_thread().name} (QObject thread: {self.worker.thread}, QApplication thread: {QCoreApplication.instance().thread()})")
 
         self.thread.started.connect(self.worker.run)
         self.worker.finished.connect(self.thread.quit)
