@@ -4,12 +4,12 @@ import math
 from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QStandardItemModel, QStandardItem
 from PySide6.QtWidgets import QMainWindow, QPushButton, QVBoxLayout, QWidget, QComboBox, QLabel, QFrame, QSplitter, \
-    QGroupBox, QGridLayout, QCheckBox, QSpinBox, QTreeView, QStatusBar
+    QGroupBox, QGridLayout, QSpinBox, QTreeView, QStatusBar
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
-import numpy as np  # Для работы с массивами и NaN
+import numpy as np  # Для работы с массивами
 
 import config
 from models import City
@@ -22,7 +22,9 @@ class MainWindow(QMainWindow):
     month_selected_signal = Signal(int)
     start_analysis_signal = Signal()
     data_route_selected_signal = Signal(MonthlyDataRoute)
-    plot_clicked_signal = Signal(float, float)
+
+    # --- Измененный сигнал для кликов по графику: теперь передает кнопку мыши ---
+    plot_clicked_signal = Signal(float, float, int)  # x, y, button (1 for left, 3 for right)
 
     def __init__(self):
         super().__init__()
@@ -31,8 +33,11 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(800, 500)
 
         self.current_plot_ax = None
-        self.current_model_line = None
-        self.current_selected_point_marker = None
+        # Храним ссылки на объекты графиков, чтобы их можно было удалять
+        self._plot_model_line1 = None  # Для Theta1/r модели
+        self._plot_model_line2 = None  # Для Theta1/r + Theta2 модели
+        self._plot_point1_marker = None
+        self._plot_point2_marker = None
         self.current_plotted_route: MonthlyDataRoute | None = None  # Добавим для хранения текущего маршрута
 
         self._init_ui()
@@ -56,12 +61,12 @@ class MainWindow(QMainWindow):
         distances_layout = QGridLayout()
         self.distances_group_box.setLayout(distances_layout)
 
-        step_label = QLabel("Step:")
+        step_label = QLabel("Шаг:")
         self.step_spinbox = QSpinBox()
         self.step_spinbox.setRange(1, 100)
         self.step_spinbox.setValue(10)
 
-        max_dist_label = QLabel("Max:")
+        max_dist_label = QLabel("Макс.:")
         self.max_dist_spinbox = QSpinBox()
         self.max_dist_spinbox.setRange(10, 500)
         self.max_dist_spinbox.setValue(200)
@@ -71,12 +76,10 @@ class MainWindow(QMainWindow):
         distances_layout.addWidget(max_dist_label, 1, 0)
         distances_layout.addWidget(self.max_dist_spinbox, 1, 1)
 
-        month_label = QLabel("Month:")
+        month_label = QLabel("Месяц:")
         self.month_combo_box = QComboBox()
 
-        self.distance_checkboxes: list[QCheckBox] = []
-
-        self.start_button = QPushButton("Start")
+        self.start_button = QPushButton("Начать анализ")
         self.start_button.setMinimumHeight(40)
 
         self.data_tree_view = QTreeView()
@@ -128,12 +131,23 @@ class MainWindow(QMainWindow):
         self.bearing_combo_box.currentIndexChanged.connect(self._on_bearing_changed)
         self.month_combo_box.currentIndexChanged.connect(self._on_month_changed)
         self.data_tree_view.clicked.connect(self._on_data_tree_item_clicked)
+        # --- Подключение обработчика событий мыши к канвасу Matplotlib ---
         self.canvas.mpl_connect('button_press_event', self._on_plot_click)
 
+    # --- Измененный обработчик кликов по графику ---
     def _on_plot_click(self, event):
-        if event.inaxes and event.button == 1:
-            print(f"Клик на графике: x={event.xdata:.2f}, y={event.ydata:.2f}")
-            self.plot_clicked_signal.emit(event.xdata, event.ydata)
+        if event.inaxes:  # Убедимся, что клик был внутри области графика
+            x_clicked = event.xdata  # Координата по оси X (расстояние)
+            y_clicked = event.ydata  # Координата по оси Y (плотность)
+            button = event.button  # 1 для левой, 3 для правой
+            print(f"Клик на графике: x={x_clicked:.2f}, y={y_clicked:.2f}, кнопка={button}")
+            self.plot_clicked_signal.emit(x_clicked, y_clicked, button)
+        else:
+            print("Клик вне области графика.")
+            # Если клик вне осей, но это правая кнопка, все равно можно попробовать отменить
+            if event.button == 3:
+                self.plot_clicked_signal.emit(0.0, 0.0,
+                                              event.button)  # Передаем фиктивные координаты, но правильную кнопку
 
     def _on_city_changed(self, index: int):
         city_data = self.city_combo_box.itemData(index)
@@ -184,9 +198,7 @@ class MainWindow(QMainWindow):
         Этот метод будет вызывать Презентер.
         """
         self.tree_model.clear()
-
         self.tree_model.setHorizontalHeaderLabels(['Загруженные данные'])
-
         root_node = self.tree_model.invisibleRootItem()
 
         for city_id, city_obj in cities_data.items():
@@ -234,6 +246,7 @@ class MainWindow(QMainWindow):
         self.data_tree_view.expandAll()
 
     def set_ui_enabled(self, enabled: bool):
+        """Включает или отключает элементы управления UI."""
         self.city_combo_box.setEnabled(enabled)
         self.bearing_combo_box.setEnabled(enabled)
         self.month_combo_box.setEnabled(enabled)
@@ -243,12 +256,13 @@ class MainWindow(QMainWindow):
         self.data_tree_view.setEnabled(enabled)
 
     def set_status_message(self, message: str):
+        """Устанавливает сообщение в статус-баре."""
         self.statusBar.showMessage(message)
 
     def plot_data(self, data_route: MonthlyDataRoute):
         """
         Отрисовывает базовый график плотности NO2 по расстоянию для выбранного маршрута.
-        Сбрасывает второй график и маркер.
+        Сбрасывает все модельные элементы.
         """
         self.current_plotted_route = data_route  # Сохраняем текущий маршрут
         self.figure.clear()
@@ -275,72 +289,111 @@ class MainWindow(QMainWindow):
         self.current_plot_ax.set_title(
             f"Плотность NO2 для {config.CITIES[data_route.city_id].name}, {config.BEARINGS[data_route.bearing]}°, {config.MONTHS[data_route.month]} ({data_route.year})")
         self.current_plot_ax.set_xlabel("Расстояние от центра (км)")
-        self.current_plot_ax.set_ylabel(r"Плотность NO2 ($\mu$моль/м$^2$)")
+        self.current_plot_ax.set_ylabel("Плотность NO2 ($\mu$моль/м$^2$)")
         self.current_plot_ax.grid(True)
         self.current_plot_ax.legend()
 
-        # --- НОВОЕ: Автоматическая настройка пределов оси Y для основного графика ---
         min_density = min(densities)
         max_density = max(densities)
-        # Добавляем небольшой отступ, чтобы точки не прилипали к границам
-        padding_factor = 0.1  # 10% от диапазона
+        padding_factor = 0.1
         y_range = max_density - min_density
         y_min_padded = min_density - (y_range * padding_factor) if y_range > 0 else min_density * 0.9
         y_max_padded = max_density + (y_range * padding_factor) if y_range > 0 else max_density * 1.1
-
-        # Убедимся, что y_min_padded не уходит слишком низко, если min_density очень мало
         if y_min_padded < 0 and min_density >= 0:
             y_min_padded = 0
-
         self.current_plot_ax.set_ylim(y_min_padded, y_max_padded)
-        # --- Конец настройки пределов ---
 
-        # Сбрасываем модельный график и маркер при новой отрисовке основного
-        self.current_model_line = None
-        self.current_selected_point_marker = None
+        self.clear_model_elements()  # Очищаем модельные элементы при новой отрисовке основного графика
 
         self.canvas.draw()
 
-    def plot_model_data(self, model_distances: list[float], model_densities: list[float],
-                        selected_point: tuple[float, float]):
+    # --- НОВЫЙ МЕТОД: Отрисовывает модель по одной точке ---
+    def plot_single_point_model(self, point1_coords: tuple[float, float], model_distances: list[float],
+                                model_densities: list[float]):
+        if self.current_plot_ax is None: return
+
+        self.clear_model_elements()  # Очищаем все, чтобы нарисовать только это
+
+        # Отрисовываем первую опорную точку
+        self._plot_point1_marker, = self.current_plot_ax.plot(
+            point1_coords[0], point1_coords[1], marker='X', color='green', markersize=10, linestyle='None',
+            label=f'Опорная точка 1: ({point1_coords[0]:.0f}км, {point1_coords[1]:.2f})'
+        )
+
+        # Отрисовываем модельную линию q = Theta1/r
+        self._plot_model_line1, = self.current_plot_ax.plot(
+            model_distances, model_densities, color='red', linestyle='--', label='Модель (Q = $\\Theta_1$/r)'
+        )
+        self._update_ylim(model_densities + [point1_coords[1]])
+        self.current_plot_ax.legend()
+        self.canvas.draw()
+
+    # --- НОВЫЙ МЕТОД: Отрисовывает модель по двум точкам ---
+    def plot_double_point_model(self, point1_coords: tuple[float, float], point2_coords: tuple[float, float],
+                                model_distances: list[float], model_densities: list[float]):
+        if self.current_plot_ax is None: return
+
+        self.clear_model_elements()  # Очищаем все, чтобы нарисовать только это
+
+        # Отрисовываем обе опорные точки
+        self._plot_point1_marker, = self.current_plot_ax.plot(
+            point1_coords[0], point1_coords[1], marker='X', color='green', markersize=10, linestyle='None',
+            label=f'Опорная точка 1: ({point1_coords[0]:.0f}км, {point1_coords[1]:.2f})'
+        )
+        self._plot_point2_marker, = self.current_plot_ax.plot(
+            point2_coords[0], point2_coords[1], marker='X', color='blue', markersize=10, linestyle='None',
+            label=f'Опорная точка 2: ({point2_coords[0]:.0f}км, {point2_coords[1]:.2f})'
+        )
+
+        # Отрисовываем модельную линию q = Theta1/r + Theta2
+        self._plot_model_line2, = self.current_plot_ax.plot(
+            model_distances, model_densities, color='purple', linestyle='-',
+            label='Модель (Q = $\\Theta_1$/r + $\\Theta_2$)'
+        )
+        self._update_ylim(model_densities + [point1_coords[1], point2_coords[1]])
+        self.current_plot_ax.legend()
+        self.canvas.draw()
+
+    # --- НОВЫЙ МЕТОД: Очищает только элементы модели ---
+    def clear_model_elements(self):
+        """Удаляет все модельные линии и маркеры опорных точек с графика."""
+        if self.current_plot_ax:
+            if self._plot_model_line1:
+                self._plot_model_line1.remove()
+                self._plot_model_line1 = None
+            if self._plot_model_line2:
+                self._plot_model_line2.remove()
+                self._plot_model_line2 = None
+            if self._plot_point1_marker:
+                self._plot_point1_marker.remove()
+                self._plot_point1_marker = None
+            if self._plot_point2_marker:
+                self._plot_point2_marker.remove()
+                self._plot_point2_marker = None
+
+            # Обновляем легенду после удаления элементов
+            self.current_plot_ax.legend()
+            self.canvas.draw()
+
+    # --- Вспомогательный метод для динамической настройки ylim ---
+    def _update_ylim(self, new_densities: list[float]):
         """
-        Отрисовывает модельную функцию на существующем графике.
-        selected_point: (расстояние, плотность) выбранной точки для маркера.
+        Обновляет пределы оси Y, включая текущие данные и новые модельные.
         """
         if self.current_plot_ax is None or self.current_plotted_route is None:
             return
 
-        # Удаляем предыдущую модельную линию и маркер, если они существуют
-        if self.current_model_line:
-            self.current_model_line.remove()
-            self.current_model_line = None
-        if self.current_selected_point_marker:
-            self.current_selected_point_marker.remove()
-            self.current_selected_point_marker = None
-
-        # Отрисовываем модельную линию
-        self.current_model_line, = self.current_plot_ax.plot(
-            model_distances, model_densities, color='red', linestyle='--', label='Модельная функция'
-        )
-
-        # Отрисовываем маркер выбранной точки
-        self.current_selected_point_marker = self.current_plot_ax.plot(
-            selected_point[0], selected_point[1], marker='X', color='green', markersize=10, linestyle='None',
-            label=f'Выбрано: ({selected_point[0]:.0f}км, {selected_point[1]:.2f})'
-        )[0]
-
-        # --- НОВОЕ: Автоматическая настройка пределов оси Y для ОБЕИХ графиков ---
         all_densities = []
         # Добавляем исходные данные (без NaN)
         for val in self.current_plotted_route.densities.values():
             if not math.isnan(val):
                 all_densities.append(val)
-        # Добавляем модельные данные (без NaN, если они вдруг там есть)
-        for val in model_densities:
+        # Добавляем новые плотности (из модели или точек), исключая NaN
+        for val in new_densities:
             if not math.isnan(val):
                 all_densities.append(val)
 
-        if not all_densities:  # Если нет данных вообще
+        if not all_densities:
             return
 
         min_combined_density = min(all_densities)
@@ -348,14 +401,16 @@ class MainWindow(QMainWindow):
 
         padding_factor = 0.1
         y_range = max_combined_density - min_combined_density
-        y_min_padded = min_combined_density - (y_range * padding_factor) if y_range > 0 else min_combined_density * 0.9
-        y_max_padded = max_combined_density + (y_range * padding_factor) if y_range > 0 else max_combined_density * 1.1
+        # Чтобы избежать деления на ноль, если диапазон равен 0 (например, все точки одинаковые)
+        if y_range == 0:
+            y_range = max_combined_density * 0.2  # Небольшой диапазон, если все значения одинаковые
 
+        y_min_padded = min_combined_density - (y_range * padding_factor)
+        y_max_padded = max_combined_density + (y_range * padding_factor)
+
+        # Не опускаемся ниже 0, если исходные данные >= 0
         if y_min_padded < 0 and min_combined_density >= 0:
-            y_min_padded = 0  # Не опускаемся ниже 0, если исходные данные >= 0
+            y_min_padded = 0
 
         self.current_plot_ax.set_ylim(y_min_padded, y_max_padded)
-        # --- Конец настройки пределов ---
-
-        self.current_plot_ax.legend()  # Обновляем легенду
         self.canvas.draw()
