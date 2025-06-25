@@ -1,9 +1,13 @@
+import threading
+
 from PySide6.QtCore import Signal, Qt
+from PySide6.QtGui import QStandardItemModel, QStandardItem
 from PySide6.QtWidgets import QMainWindow, QPushButton, QVBoxLayout, QWidget, QComboBox, QLabel, QFrame, QSplitter, \
-    QGroupBox, QGridLayout, QCheckBox, QSpinBox
+    QGroupBox, QGridLayout, QCheckBox, QSpinBox, QTreeView, QStatusBar
 
 import config
 from models import City
+from models.routes import MonthlyDataRoute
 
 
 class MainWindow(QMainWindow):
@@ -11,6 +15,7 @@ class MainWindow(QMainWindow):
     bearing_selected_signal = Signal(int)
     month_selected_signal = Signal(int)
     start_analysis_signal = Signal()
+    data_route_selected_signal = Signal(MonthlyDataRoute)
 
     def __init__(self):
         super().__init__()
@@ -62,6 +67,11 @@ class MainWindow(QMainWindow):
         self.start_button = QPushButton("Start")
         self.start_button.setMinimumHeight(40)
 
+        self.data_tree_view = QTreeView()
+        self.tree_model = QStandardItemModel()
+        self.data_tree_view.setModel(self.tree_model)
+        self.data_tree_view.setHeaderHidden(True)
+
         controls_layout.addWidget(city_label)
         controls_layout.addWidget(self.city_combo_box)
         controls_layout.addWidget(bearing_label)
@@ -71,6 +81,8 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.distances_group_box)
         controls_layout.addSpacing(20)
         controls_layout.addWidget(self.start_button)
+        controls_layout.addWidget(QLabel("Загруженные данные:"))
+        controls_layout.addWidget(self.data_tree_view)
         controls_layout.addStretch()
 
         controls_widget = QWidget()
@@ -95,11 +107,15 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(splitter)
 
+        self.statusBar = QStatusBar()
+        self.setStatusBar(self.statusBar)
+
     def _init_signals(self):
         self.start_button.clicked.connect(self.start_analysis_signal.emit)
         self.city_combo_box.currentIndexChanged.connect(self._on_city_changed)
         self.bearing_combo_box.currentIndexChanged.connect(self._on_bearing_changed)
         self.month_combo_box.currentIndexChanged.connect(self._on_month_changed)
+        self.data_tree_view.clicked.connect(self._on_data_tree_item_clicked)
 
     def _on_city_changed(self, index: int):
         city_data = self.city_combo_box.itemData(index)
@@ -115,6 +131,16 @@ class MainWindow(QMainWindow):
         month_data = self.month_combo_box.itemData(index)
         if month_data is not None:
             self.month_selected_signal.emit(month_data)
+
+    def _on_data_tree_item_clicked(self, index):
+        """Обрабатывает клик по элементу в древовидном представлении."""
+        item = self.tree_model.itemFromIndex(index)
+        if item:
+            data_obj = item.data()
+            # Проверяем, что это тот тип данных, который нас интересует (MonthlyDataRoute)
+            if isinstance(data_obj, MonthlyDataRoute):
+                print(f"Выбран маршрут: Bearing={data_obj.bearing}, Month={data_obj.month}, Year={data_obj.year}")
+                self.data_route_selected_signal.emit(data_obj)
 
     def populate_cities(self):
         for city in config.CITIES.values():
@@ -133,3 +159,80 @@ class MainWindow(QMainWindow):
             'step': self.step_spinbox.value(),
             'max': self.max_dist_spinbox.value()
         }
+
+    def update_data_tree(self, cities_data: dict[str, City]):
+        """
+        Полностью перерисовывает дерево на основе данных из модели.
+        Этот метод будет вызывать Презентер.
+        """
+        self.tree_model.clear()  # Очищаем старое дерево
+
+        # Устанавливаем заголовок колонок (хоть он и скрыт, это хорошая практика)
+        self.tree_model.setHorizontalHeaderLabels(['Загруженные данные'])
+
+        root_node = self.tree_model.invisibleRootItem()
+
+        for city_id, city_obj in cities_data.items():
+            # Пропускаем города без загруженных маршрутов (или те, где нет MonthlyDataRoute с данными)
+            has_valid_routes = False
+            for route_r in city_obj.routes:
+                if isinstance(route_r, MonthlyDataRoute) and route_r.densities:
+                    has_valid_routes = True
+                    break
+            if not has_valid_routes:
+                continue
+
+                # Уровень 1: Город
+            city_item = QStandardItem(city_obj.name)
+            city_item.setEditable(False)
+            city_item.setSelectable(False)  # Город не кликабельный для данных
+            root_node.appendRow(city_item)
+
+            # Для каждого города, группируем маршруты по азимуту и месяцу
+            # Это необходимо, потому что у нас теперь список routes, а не dict по bearing
+            routes_by_bearing_month: dict[tuple[int, int], list[MonthlyDataRoute]] = {}
+            for route_r in city_obj.routes:
+                if isinstance(route_r, MonthlyDataRoute) and route_r.densities:
+                    key = (route_r.bearing, route_r.month)
+                    if key not in routes_by_bearing_month:
+                        routes_by_bearing_month[key] = []
+                    routes_by_bearing_month[key].append(route_r)
+
+            for (bearing, month_num), monthly_routes in routes_by_bearing_month.items():
+                # Уровень 2: Маршрут (группа по азимуту и месяцу)
+                bearing_name = config.BEARINGS.get(bearing, f"{bearing}°")
+                month_name = config.MONTHS.get(month_num, f"Месяц {month_num}")
+                route_item_text = f"{bearing_name}, {month_name}"
+                route_item = QStandardItem(route_item_text)
+                route_item.setEditable(False)
+                route_item.setSelectable(False)  # Группа маршрутов не кликабельная для данных
+                city_item.appendRow(route_item)
+
+                # Сортируем маршруты по году для более аккуратного отображения
+                monthly_routes.sort(key=lambda r: r.year)
+
+                for route_obj in monthly_routes:
+                    # Уровень 3: Конкретный год (этот элемент будет кликабельным)
+                    year_item_text = f"Данные за {route_obj.year} год"
+                    year_item = QStandardItem(year_item_text)
+                    year_item.setEditable(False)
+                    # Сохраняем весь объект маршрута внутри элемента дерева!
+                    year_item.setData(route_obj)
+                    route_item.appendRow(year_item)
+
+        self.data_tree_view.expandAll()
+
+    def set_ui_enabled(self, enabled: bool):
+        """Включает или отключает элементы управления UI."""
+        self.city_combo_box.setEnabled(enabled)
+        self.bearing_combo_box.setEnabled(enabled)
+        self.month_combo_box.setEnabled(enabled)
+        self.step_spinbox.setEnabled(enabled)
+        self.max_dist_spinbox.setEnabled(enabled)
+        self.start_button.setEnabled(enabled)
+        self.data_tree_view.setEnabled(enabled)  # Отключаем дерево во время анализа
+
+    def set_status_message(self, message: str):
+        """Устанавливает сообщение в статус-баре."""
+        print("Current thread:", threading.current_thread().name)
+        self.statusBar.showMessage(message)

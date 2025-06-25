@@ -32,7 +32,7 @@ class Analysis:
         self.exporter: Optional[Exporter] = None
         self.current_month: int | None = None
 
-    def run(self, city: City, bearings: list[int], month: int, distances: list[int], fetcher: Fetcher, exporter: Exporter):
+    def run(self, city: City, bearings: list[int], month: int, distances: list[int], fetcher: Fetcher, exporter: Exporter) -> list[dict[str, Any]]:
         print("Analysis.run method started.")
         try:
             self.current_city = city
@@ -40,84 +40,63 @@ class Analysis:
                 self.cities[city.id] = city
                 print(f"Added {city.name} to cities cache.")
 
-            # Создаем или находим MonthlyDataRoute для текущих параметров
-            routes_to_process: dict[int, MonthlyDataRoute] = {}
-            print(f"Processing {len(bearings)} bearings for month {month}.")
-            for bearing in bearings:
-                print(f"  Checking bearing: {bearing}")
+            all_flat_data_for_export = [] # Сюда будут собираться все данные для экспорта
 
-                found_route = None
-                print(
-                    f"  Searching for existing route in city.routes (current size: {len(city.routes)}). Type of city.routes: {type(city.routes).__name__}.")  # Добавлен вывод типа
-
-                # Добавим дополнительную проверку на итерируемость, хотя это и маловероятно
-                if not isinstance(city.routes, (list, tuple)):
-                    print(f"  ERROR: city.routes is not an iterable (list/tuple). It's {type(city.routes).__name__}.")
-                    raise TypeError("city.routes must be a list or tuple of routes.")
-
-                for i, r in enumerate(city.routes):
-                    print(
-                        f"    Inspecting route {i}: type={type(r).__name__}, bearing={getattr(r, 'bearing', 'N/A')}, month={getattr(r, 'month', 'N/A')}")
-                    if isinstance(r, MonthlyDataRoute) and r.bearing == bearing and r.month == month:
-                        found_route = r
-                        print(f"    Found existing route for bearing {bearing}, month {month}.")
-                        break
-                print(
-                    f"  Finished searching for existing route for bearing {bearing}.")  # Новый отладочный вывод, сразу после цикла
-
-                if not found_route:
-                    found_route = MonthlyDataRoute(bearing=bearing, year=0, month=month)
-                    city.routes.append(found_route)
-                    print(
-                        f"    Created new route for bearing {bearing}, month {month}. city.routes new size: {len(city.routes)}.")  # Отладочный вывод
-
-                # Генерируем точки для маршрута
-                origin_lat, origin_lon = city.coordinates
-                print(f"    Generating points for {len(distances)} distances from {origin_lat}, {origin_lon}.")
-                for distance in distances:
-                    if distance not in found_route.distances:
-                        found_route.distances.append(distance)
-                    new_lat, new_lon = calculate_new_coordinates(origin_lat, origin_lon, distance, bearing)
-                    found_route.points[distance] = new_lat, new_lon
-
-                routes_to_process[bearing] = found_route
-                print(f"  Finished processing bearing: {bearing}. Route added to routes_to_process.")
-
-            print("Finished generating points for all bearings.")
-
-            self.current_month = month
+            self.current_month = month # Устанавливаем текущий месяц для obtain_data
             self.data_fetcher = fetcher
             self.exporter = exporter
 
-            print("About to obtain data from fetcher...")
-            all_data = self.obtain_data(routes_to_process)
+            # Мы будем получать данные для КАЖДОГО года и создавать отдельный MonthlyDataRoute
+            for bearing in bearings:
+                print(f"  Processing bearing: {bearing}")
+                origin_lat, origin_lon = city.coordinates
+
+                # Подготовим points для всех дистанций один раз для данного азимута
+                points_for_current_bearing = {}
+                for distance in distances:
+                    new_lat, new_lon = calculate_new_coordinates(origin_lat, origin_lon, distance, bearing)
+                    points_for_current_bearing[distance] = new_lat, new_lon
+                print(f"    Generated points for all distances for bearing {bearing}.")
+
+                for year in config.YEARS_TO_ANALYZE:
+                    print(f"    Fetching data for year: {year}, bearing: {bearing}, month: {month}")
+
+                    # Создаем НОВЫЙ MonthlyDataRoute для каждого года, азимута и месяца
+                    monthly_data_route = MonthlyDataRoute(
+                        bearing=bearing,
+                        year=year,
+                        month=month,
+                        distances=list(distances), # Копируем distances в новый объект
+                        points=points_for_current_bearing.copy() # Копируем сгенерированные точки
+                    )
+
+                    # Получаем данные конкретно для этого маршрута (года, азимута, месяца)
+                    # GeeFetcher.fetch теперь принимает список из ОДНОГО маршрута для обработки
+                    # или мы можем передать его как часть словаря, как раньше, но с одним элементом
+                    routes_for_fetch = {bearing: monthly_data_route}
+
+                    monthly_data = self.data_fetcher.fetch(routes_for_fetch, year, month)
+
+                    # Обновляем densities в только что созданном MonthlyDataRoute
+                    for record in monthly_data:
+                        dist = record['distance']
+                        no2_val = record['no2_umol_m2']
+                        monthly_data_route.densities[dist] = no2_val
+
+                    # Добавляем этот *уникальный* MonthlyDataRoute в список маршрутов города
+                    city.routes.append(monthly_data_route)
+                    all_flat_data_for_export.extend(monthly_data) # Собираем все плоские данные для экспорта
+
+                    print(f"    Finished fetching for year {year}, bearing {bearing}, month {month}. City routes size: {len(city.routes)}")
+
+            print("Finished processing all bearings and years.")
+
             print("Data obtained. About to export...")
-            self.exporter.export(city, all_data)
+            self.exporter.export(city, all_flat_data_for_export) # Экспорт всех данных, которые были получены
             print("Data exported. Analysis.run finished.")
-            return all_data
+            return all_flat_data_for_export # Возвращаем данные для дальнейшего использования
         except Exception as e:
             error_message = f"Error in Analysis.run: {e}"
-            print(error_message)
-            traceback.print_exc()
-            raise
-
-    def obtain_data(self, routes_by_bearing: dict[int, MonthlyDataRoute]) -> list[dict[str, Any]]:
-        print("Analysis.obtain_data method started.")
-        try:
-            all_data = []
-            for year in config.YEARS_TO_ANALYZE:
-                print(f"  Fetching data for year: {year}")
-                for route in routes_by_bearing.values():
-                    route.year = year
-
-                print(f"  Calling data_fetcher.fetch for year {year} and month {self.current_month}.")
-                monthly_data = self.data_fetcher.fetch(routes_by_bearing, year, self.current_month)
-                all_data.extend(monthly_data)
-                print(f"  Received {len(monthly_data)} records for year {year}.")
-            print("Analysis.obtain_data method finished.")
-            return all_data
-        except Exception as e:
-            error_message = f"Error in Analysis.obtain_data: {e}"
             print(error_message)
             traceback.print_exc()
             raise
