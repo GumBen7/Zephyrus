@@ -1,3 +1,5 @@
+# /home/gumben7/PycharmProjects/Zephyrus/models/analysis.py
+
 import math
 import traceback
 from typing import Optional, Any
@@ -31,6 +33,7 @@ class Analysis:
         self.data_fetcher: Optional[Fetcher] = None
         self.exporter: Optional[Exporter] = None
         self.current_month: int | None = None
+        print("Analysis model initialized.") # Добавил обратно, так как был в логе
 
     def run(self, city: City, bearings: list[int], month: int, distances: list[int], fetcher: Fetcher, exporter: Exporter) -> list[dict[str, Any]]:
         print("Analysis.run method started.")
@@ -40,18 +43,16 @@ class Analysis:
                 self.cities[city.id] = city
                 print(f"Added {city.name} to cities cache.")
 
-            all_flat_data_for_export = [] # Сюда будут собираться все данные для экспорта
+            all_flat_data_for_export = []
 
-            self.current_month = month # Устанавливаем текущий месяц для obtain_data
+            self.current_month = month
             self.data_fetcher = fetcher
             self.exporter = exporter
 
-            # Мы будем получать данные для КАЖДОГО года и создавать отдельный MonthlyDataRoute
             for bearing in bearings:
                 print(f"  Processing bearing: {bearing}")
                 origin_lat, origin_lon = city.coordinates
 
-                # Подготовим points для всех дистанций один раз для данного азимута
                 points_for_current_bearing = {}
                 for distance in distances:
                     new_lat, new_lon = calculate_new_coordinates(origin_lat, origin_lon, distance, bearing)
@@ -61,41 +62,35 @@ class Analysis:
                 for year in config.YEARS_TO_ANALYZE:
                     print(f"    Fetching data for year: {year}, bearing: {bearing}, month: {month}")
 
-                    # Создаем НОВЫЙ MonthlyDataRoute для каждого года, азимута и месяца
                     monthly_data_route = MonthlyDataRoute(
                         city_id=city.id,
                         bearing=bearing,
                         year=year,
                         month=month,
-                        distances=list(distances), # Копируем distances в новый объект
-                        points=points_for_current_bearing.copy() # Копируем сгенерированные точки
+                        distances=list(distances), # Обязательно передаем distances
+                        points=points_for_current_bearing.copy()
                     )
 
-                    # Получаем данные конкретно для этого маршрута (года, азимута, месяца)
-                    # GeeFetcher.fetch теперь принимает список из ОДНОГО маршрута для обработки
-                    # или мы можем передать его как часть словаря, как раньше, но с одним элементом
                     routes_for_fetch = {bearing: monthly_data_route}
 
                     monthly_data = self.data_fetcher.fetch(routes_for_fetch, year, month)
 
-                    # Обновляем densities в только что созданном MonthlyDataRoute
                     for record in monthly_data:
                         dist = record['distance']
                         no2_val = record['no2_umol_m2']
                         monthly_data_route.densities[dist] = no2_val
 
-                    # Добавляем этот *уникальный* MonthlyDataRoute в список маршрутов города
                     city.routes.append(monthly_data_route)
-                    all_flat_data_for_export.extend(monthly_data) # Собираем все плоские данные для экспорта
+                    all_flat_data_for_export.extend(monthly_data)
 
                     print(f"    Finished fetching for year {year}, bearing {bearing}, month {month}. City routes size: {len(city.routes)}")
 
             print("Finished processing all bearings and years.")
 
             print("Data obtained. About to export...")
-            self.exporter.export(city, all_flat_data_for_export) # Экспорт всех данных, которые были получены
+            self.exporter.export(city, all_flat_data_for_export)
             print("Data exported. Analysis.run finished.")
-            return all_flat_data_for_export # Возвращаем данные для дальнейшего использования
+            return all_flat_data_for_export
         except Exception as e:
             error_message = f"Error in Analysis.run: {e}"
             print(error_message)

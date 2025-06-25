@@ -1,5 +1,8 @@
-# presenters/main_presenter.py
+# /home/gumben7/PycharmProjects/Zephyrus/presenters/main_presenter.py
+
 import threading
+import math # Для расчета ближайшей точки и Theta
+import numpy as np # Для генерации точек модельной функции и работы с nan
 
 from PySide6.QtCore import QThread, Slot, QCoreApplication, Qt, QObject
 
@@ -52,8 +55,10 @@ class MainPresenter(QObject):
         self.view.city_selected_signal.connect(self.on_city_selected)
         self.view.bearing_selected_signal.connect(self.on_bearing_selected)
         self.view.month_selected_signal.connect(self.on_month_changed)
-        # Подключаем сигнал от View к слоту в Презентере
         self.view.data_route_selected_signal.connect(self.on_data_route_selected)
+
+        # --- НОВОЕ: Подключение сигнала клика по графику ---
+        self.view.plot_clicked_signal.connect(self.on_plot_clicked)
         print("View signals connected.")
 
     def on_city_selected(self, city: City):
@@ -68,14 +73,13 @@ class MainPresenter(QObject):
         self.current_month = month
         print(f"Month selected: {month}")
 
-    @Slot(MonthlyDataRoute)  # Указываем тип аргумента для слота
+    @Slot(MonthlyDataRoute)
     def on_data_route_selected(self, route: MonthlyDataRoute):
         """Слот для обработки выбора MonthlyDataRoute из дерева данных."""
-        self.current_selected_data_route = route
+        self.current_selected_data_route = route  # Сохраняем выбранный маршрут
         print(
             f"Selected data route in presenter: Bearing={route.bearing}, Month={route.month}, Year={route.year}. Densities: {route.densities}")
-        # Вызываем метод отрисовки в View
-        self.view.plot_data(route)
+        self.view.plot_data(route)  # Отрисовываем базовый график
 
     @Slot()
     def on_analysis_finished_in_model(self):
@@ -138,7 +142,7 @@ class MainPresenter(QObject):
         self.worker.moveToThread(self.thread)
         print("Worker moved to thread.")
         print(
-            f"Worker's thread affinity after moveToThread: {threading.current_thread().name} (QObject thread: {self.worker.thread}, QApplication thread: {QCoreApplication.instance().thread()})")
+            f"Worker's thread affinity after moveToThread: {threading.current_thread().name} (QObject thread: {self.worker.thread()}, QApplication thread: {QCoreApplication.instance().thread()})")
 
         self.thread.started.connect(self.worker.run)
         self.worker.finished.connect(self.thread.quit)
@@ -153,3 +157,66 @@ class MainPresenter(QObject):
 
         self.thread.start()
         print("Thread started.")
+
+    # --- НОВЫЙ СЛОТ: Обработка кликов по графику ---
+    @Slot(float, float) # Указываем типы аргументов: x, y
+    def on_plot_clicked(self, clicked_x: float, clicked_y: float):
+        """
+        Обрабатывает клик по графику, находит ближайшую точку данных,
+        рассчитывает Theta и отображает модельную функцию.
+        """
+        if not self.current_selected_data_route:
+            print("Нет выбранных данных для построения модели.")
+            self.view.set_status_message("Выберите данные для анализа на графике, чтобы построить модель.")
+            return
+
+        # Фильтруем данные, чтобы исключить NaN перед поиском ближайшей точки
+        valid_distances = []
+        valid_densities = []
+        for dist, density in self.current_selected_data_route.densities.items():
+            if not math.isnan(density):
+                valid_distances.append(dist)
+                valid_densities.append(density)
+
+        if not valid_distances:
+            print("Нет действительных данных для построения модели в выбранном маршруте.")
+            self.view.set_status_message("В выбранном маршруте нет действительных данных для построения модели.")
+            return
+
+        # 1. Находим ближайшую точку данных к координате x клика
+        # Используем valid_distances для поиска ближайшей точки
+        nearest_dist_index = np.argmin(np.abs(np.array(valid_distances) - clicked_x))
+        nearest_dist = valid_distances[nearest_dist_index]
+        nearest_density = valid_densities[nearest_dist_index] # Получаем соответствующую плотность
+
+        print(f"Ближайшая точка данных: r={nearest_dist}, q={nearest_density:.2f}")
+
+        # Используем эту точку как опорную для расчета Theta
+        # Если nearest_dist очень близко к нулю, это может вызвать деление на ноль
+        if nearest_dist == 0:
+            print("Ошибка: Выбранная точка находится в центре города (r=0), невозможно рассчитать Theta.")
+            self.view.set_status_message("Невозможно рассчитать модель: точка находится в центре города (r=0).")
+            return
+
+        # 2. Рассчитываем Theta: q = Theta / r => Theta = q * r
+        calculated_theta = nearest_density * nearest_dist
+        print(f"Рассчитанная Theta (θ): {calculated_theta:.2f}")
+
+        # 3. Генерируем точки для новой гладкой функции q = Theta / r
+        # Создаем диапазон расстояний для отрисовки модели
+        # Избегаем деления на ноль, начиная с небольшого значения > 0.
+        r_min = min(valid_distances) if min(valid_distances) > 0 else 1 # Начинаем с 1, если 0 - минимальное
+        r_max = max(valid_distances) + 10 # Немного больше, чтобы показать тренд
+        model_distances = np.linspace(r_min, r_max, 100) # 100 точек для гладкой кривой
+
+        # Защита от деления на ноль для model_distances
+        model_densities = []
+        for r in model_distances:
+            if r > 0:
+                model_densities.append(calculated_theta / r)
+            else:
+                model_densities.append(np.nan) # Если r = 0, добавляем NaN, хотя по идее это уже отфильтровано
+
+        # 4. Отрисовываем модельную функцию на графике
+        self.view.plot_model_data(model_distances, model_densities, (nearest_dist, nearest_density))
+        self.view.set_status_message(f"Модель построена. Theta (θ) = {calculated_theta:.2f}")
