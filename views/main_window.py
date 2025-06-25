@@ -25,7 +25,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Zephyrus")
+        self.setWindowTitle("Зефир")
         self.resize(1200, 700)
         self.setMinimumSize(800, 500)
 
