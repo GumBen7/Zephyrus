@@ -17,6 +17,7 @@ class GeeFetcher(Fetcher):
             ee.Initialize(project=config.G_PROJECT_ID)
             print("Earth Engine initialized successfully.")
         except Exception as e:
+            ee.Authenticate()
             print(e)
             raise
 
