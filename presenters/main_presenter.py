@@ -1,8 +1,8 @@
-import threading
 import math
-import numpy as np
+import threading
 
-from PySide6.QtCore import QThread, Slot, QCoreApplication, Qt, QObject
+import numpy as np
+from PySide6.QtCore import QCoreApplication, QObject, QThread, Slot, Qt
 
 import config
 from models import City
@@ -13,28 +13,21 @@ from views.main_window import MainWindow
 
 
 class MainPresenter(QObject):
-    def on_progress_update(self, percent: int, message: str):
-        self.view.set_status_message(f"Прогресс: {percent}%, {message}")
-        print(
-            f"Progress update: {percent}%, {message} (Thread: {threading.current_thread().name} / QObject thread: {self.thread}, QApplication thread: {QCoreApplication.instance().thread()})")
-
     def __init__(self, view: MainWindow, model: Analysis):
         super().__init__()
         self.view = view
         self.model = model
 
-        self.thread: QThread | None = None
-        self.worker: AnalysisWorker | None = None
-
-        self.current_city: City | None = None
         self.current_bearing: int | None = None
+        self.current_city: City | None = None
         self.current_month: int | None = None
         self.current_selected_data_route: MonthlyDataRoute | None = None
-
-        self._selected_point1: tuple[float, float] | None = None  # (r, q)
-        self._selected_point2: tuple[float, float] | None = None  # (r, q)
         self._calculated_theta1: float | None = None
         self._calculated_theta2: float | None = None
+        self._selected_point1: tuple[float, float] | None = None
+        self._selected_point2: tuple[float, float] | None = None
+        self.thread: QThread | None = None
+        self.worker: AnalysisWorker | None = None
 
         self._connect_view_signals()
 
@@ -54,31 +47,48 @@ class MainPresenter(QObject):
             f"MainPresenter initialized in thread: {threading.current_thread().name} (QObject thread: {self.thread}, QApplication thread: {QCoreApplication.instance().thread()})")
 
     def _connect_view_signals(self):
-        self.view.start_analysis_signal.connect(self.run_analysis)
-        self.view.export_data_signal.connect(self.export_all_data)  # НОВОЕ: Подключаем сигнал экспорта
-        self.view.city_selected_signal.connect(self.on_city_selected)
         self.view.bearing_selected_signal.connect(self.on_bearing_selected)
-        self.view.month_selected_signal.connect(self.on_month_changed)
+        self.view.city_selected_signal.connect(self.on_city_selected)
         self.view.data_route_selected_signal.connect(self.on_data_route_selected)
-
+        self.view.export_data_signal.connect(self.export_all_data)
+        self.view.month_selected_signal.connect(self.on_month_changed)
         self.view.plot_clicked_signal.connect(self.on_plot_clicked)
+        self.view.start_analysis_signal.connect(self.run_analysis)
         print("View signals connected.")
 
-    def on_city_selected(self, city: City):
-        self.current_city = city
-        print(f"City selected: {city.name}")
+    @Slot()
+    def on_analysis_finished_in_model(self):
+        print(
+            f"on_analysis_finished_in_model called. Current thread: {threading.current_thread().name} (QObject thread: {self.thread}, QApplication thread: {QCoreApplication.instance().thread()})")
+        self.view.update_data_tree(self.model.cities)
+        self.view.set_ui_enabled(True)
+        self.view.set_status_message("Анализ завершен! Выберите данные для отображения или начните новый анализ.")
+        print("UI unlocked and data tree updated.")
 
+    def on_progress_update(self, percent: int, message: str):
+        self.view.set_status_message(f"Прогресс: {percent}%, {message}")
+        print(
+            f"Progress update: {percent}%, {message} (Thread: {threading.current_thread().name} / QObject thread: {self.thread}, QApplication thread: {QCoreApplication.instance().thread()})")
+
+    def on_thread_finished(self):
+        print(
+            f"Thread finished signal received in MainPresenter. Cleaning up. Current thread: {threading.current_thread().name} (QObject thread: {self.thread}, QApplication thread: {QCoreApplication.instance().thread()})")
+        self.thread = None
+        self.worker = None
+        print("Thread and worker references reset.")
+
+    @Slot(int)
     def on_bearing_selected(self, bearing: int):
         self.current_bearing = bearing
         print(f"Bearing selected: {bearing}")
 
-    def on_month_changed(self, month: int):
-        self.current_month = month
-        print(f"Month selected: {month}")
+    @Slot(City)
+    def on_city_selected(self, city: City):
+        self.current_city = city
+        print(f"City selected: {city.name}")
 
     @Slot(MonthlyDataRoute)
     def on_data_route_selected(self, route: MonthlyDataRoute):
-        """Слот для обработки выбора MonthlyDataRoute из дерева данных."""
         self.current_selected_data_route = route
         print(
             f"Selected data route in presenter: Bearing={route.bearing}, Month={route.month}, Year={route.year}. Densities: {route.densities}")
@@ -90,81 +100,6 @@ class MainPresenter(QObject):
         self.view.set_status_message("Выберите опорную точку на графике (ЛКМ).")
 
     @Slot()
-    def on_analysis_finished_in_model(self):
-        """
-        Этот слот вызывается, когда анализ ЗАВЕРШЕН и данные в модели обновлены.
-        Он должен выполняться в главном потоке.
-        """
-        print(
-            f"on_analysis_finished_in_model called. Current thread: {threading.current_thread().name} (QObject thread: {self.thread}, QApplication thread: {QCoreApplication.instance().thread()})")
-
-        self.view.update_data_tree(self.model.cities)
-        self.view.set_ui_enabled(True)
-        self.view.set_status_message("Анализ завершен! Выберите данные для отображения или начните новый анализ.")
-        print("UI unlocked and data tree updated.")
-
-    def on_thread_finished(self):
-        """
-        Этот слот вызывается, когда QThread полностью завершил свою работу.
-        Он будет вызван в главном потоке.
-        Здесь безопасно сбрасывать ссылки на поток и воркер.
-        """
-        print(
-            f"Thread finished signal received in MainPresenter. Cleaning up. Current thread: {threading.current_thread().name} (QObject thread: {self.thread}, QApplication thread: {QCoreApplication.instance().thread()})")
-        self.thread = None
-        self.worker = None
-        print("Thread and worker references reset.")
-
-    def run_analysis(self):
-        print("run_analysis called.")
-        distance_params = self.view.get_distance_parameters()
-        if not self.current_city or self.current_bearing is None or self.current_month is None or not distance_params:
-            self.view.set_status_message("Отсутствуют параметры для анализа.")
-            return
-        distances = list(range(
-            distance_params['step'],
-            distance_params['max'] + 1,
-            distance_params['step']
-        ))
-        print(
-            f"Analysis parameters: City={self.current_city.name}, Bearing={self.current_bearing}, Month={self.current_month}, Distances={distances}")
-
-        self.view.set_ui_enabled(False)
-        self.view.set_status_message("Начинаем анализ...")
-
-        if self.thread and self.thread.isRunning():
-            self.view.set_status_message("Анализ уже запущен.")
-            self.view.set_ui_enabled(True)
-            return
-
-        self.thread = QThread()
-        self.worker = AnalysisWorker(
-            analysis_model=self.model,
-            city=self.current_city,
-            bearings=[self.current_bearing],
-            month=self.current_month,
-            distances=distances
-        )
-        self.worker.moveToThread(self.thread)
-        print("Worker moved to thread.")
-        print(
-            f"Worker's thread affinity after moveToThread: {threading.current_thread().name} (QObject thread: {self.worker.thread()}, QApplication thread: {QCoreApplication.instance().thread()})")
-
-        self.thread.started.connect(self.worker.run)
-        self.worker.finished.connect(self.thread.quit)
-        self.worker.finished.connect(self.worker.deleteLater)
-        self.thread.finished.connect(self.thread.deleteLater)
-        self.thread.finished.connect(self.on_thread_finished)
-
-        self.worker.progress.connect(self.on_progress_update, Qt.QueuedConnection)
-        self.worker.analysis_finished_signal.connect(self.on_analysis_finished_in_model, Qt.QueuedConnection)
-
-        print("Worker/Thread signals connected (inside run_analysis).")
-
-        self.thread.start()
-        print("Thread started.")
-
-    @Slot()  # НОВОЕ: Слот для экспорта всех загруженных данных
     def export_all_data(self):
         if not self.model.cities:
             self.view.set_status_message("Нет загруженных данных для экспорта.")
@@ -173,18 +108,20 @@ class MainPresenter(QObject):
         self.view.set_ui_enabled(False)
         self.view.set_status_message("Начинаем экспорт данных...")
 
-        # Экспорт может занять время, возможно, его тоже стоит вынести в отдельный поток
-        # Но для начала сделаем просто в основном потоке, если не будет зависаний UI
         try:
-            self.model.export_all_loaded_data(self.model.exporter)  # НОВОЕ: Вызов метода экспорта из модели
+            self.model.export_all_loaded_data(self.model.exporter)
             self.view.set_status_message(f"Данные успешно экспортированы в папку '{config.EXPORTS_FOLDER}'.")
         except Exception as e:
             self.view.set_status_message(f"Ошибка при экспорте данных: {e}")
             print(f"Error during export: {e}")
         finally:
             self.view.set_ui_enabled(True)
-            self.view.update_data_tree(
-                self.model.cities)  # Обновляем дерево, чтобы включить кнопку экспорта, если она была отключена
+            self.view.update_data_tree(self.model.cities)
+
+    @Slot(int)
+    def on_month_changed(self, month: int):
+        self.current_month = month
+        print(f"Month selected: {month}")
 
     @Slot(float, float, int)
     def on_plot_clicked(self, clicked_x: float, clicked_y: float, button: int):
@@ -291,3 +228,53 @@ class MainPresenter(QObject):
                 self.view.set_status_message("Выбор точек отменен. График сброшен.")
             else:
                 self.view.set_status_message("Нет выбранных точек для отмены.")
+
+    @Slot()
+    def run_analysis(self):
+        print("run_analysis called.")
+        distance_params = self.view.get_distance_parameters()
+        if not self.current_city or self.current_bearing is None or self.current_month is None or not distance_params:
+            self.view.set_status_message("Отсутствуют параметры для анализа.")
+            return
+        distances = list(range(
+            distance_params['step'],
+            distance_params['max'] + 1,
+            distance_params['step']
+        ))
+        print(
+            f"Analysis parameters: City={self.current_city.name}, Bearing={self.current_bearing}, Month={self.current_month}, Distances={distances}")
+
+        self.view.set_ui_enabled(False)
+        self.view.set_status_message("Начинаем анализ...")
+
+        if self.thread and self.thread.isRunning():
+            self.view.set_status_message("Анализ уже запущен.")
+            self.view.set_ui_enabled(True)
+            return
+
+        self.thread = QThread()
+        self.worker = AnalysisWorker(
+            analysis_model=self.model,
+            city=self.current_city,
+            bearings=[self.current_bearing],
+            month=self.current_month,
+            distances=distances
+        )
+        self.worker.moveToThread(self.thread)
+        print("Worker moved to thread.")
+        print(
+            f"Worker's thread affinity after moveToThread: {threading.current_thread().name} (QObject thread: {self.worker.thread()}, QApplication thread: {QCoreApplication.instance().thread()})")
+
+        self.thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+        self.thread.finished.connect(self.on_thread_finished)
+
+        self.worker.progress.connect(self.on_progress_update, Qt.QueuedConnection)
+        self.worker.analysis_finished_signal.connect(self.on_analysis_finished_in_model, Qt.QueuedConnection)
+
+        print("Worker/Thread signals connected (inside run_analysis).")
+
+        self.thread.start()
+        print("Thread started.")

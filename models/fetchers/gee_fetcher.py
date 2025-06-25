@@ -1,11 +1,11 @@
+import traceback
 from typing import Any, cast
 
 import ee
 
 import config
-from .. import City
-from ..fetcher import Fetcher
-from ..routes import PointsRoute, MonthlyDataRoute
+from models import Fetcher
+from models.routes import MonthlyDataRoute, PointsRoute
 
 
 class GeeFetcher(Fetcher):
@@ -18,8 +18,6 @@ class GeeFetcher(Fetcher):
             print("Earth Engine initialized successfully.")
         except Exception as e:
             print(e)
-            # ee.Authenticate()
-            # ee.Initialize(project=project_id)
             raise
 
     def fetch(self, routes_by_bearing: dict[int, MonthlyDataRoute], year: int, month: int) -> list[dict[str, Any]]:
@@ -56,8 +54,9 @@ class GeeFetcher(Fetcher):
         try:
             results_info = sampled_features.getInfo()['features']
             print("getInfo() call completed successfully.")
-        except Exception as e :
+        except Exception as e:
             print(e)
+            traceback.print_exc()
             raise
 
         processed_results = []

@@ -1,42 +1,38 @@
-# presenters/analysis_worker.py (без изменений)
-
 import threading
 import traceback
 
-from PySide6.QtCore import QObject, Signal, QMetaObject, Qt
+from PySide6.QtCore import QObject, Signal, Slot
 
 from models import City
 from models.analysis import Analysis
-from models.fetchers import GeeFetcher
 from models.exporters import CsvExporter
+from models.fetchers import GeeFetcher
 
 
 class AnalysisWorker(QObject):
+    analysis_finished_signal = Signal()
     finished = Signal()
     progress = Signal(int, str)
-    analysis_finished_signal = Signal()
 
     def __init__(self, analysis_model: Analysis, city: City, bearings: list[int], month: int,
                  distances: list[int]):
         super().__init__()
         self.analysis_model = analysis_model
-        self.city = city
         self.bearings = bearings
-        self.month = month
+        self.city = city
         self.distances = distances
-
-        self.fetcher = GeeFetcher()
         self.exporter = CsvExporter()
+        self.fetcher = GeeFetcher()
+        self.month = month
 
         print("AnalysisWorker initialized.")
 
+    @Slot()
     def run(self):
         print("AnalysisWorker run method started.")
         print("Current thread:", threading.current_thread().name)
         try:
-            print(f"GeeFetcher thread affinity: {self.fetcher.thread() if hasattr(self.fetcher, 'thread') else 'N/A'}")
-
-            self.progress.emit(10, "Started analysis")
+            self.progress.emit(10, "Анализ запущен")
             print("Analysis model run method about to be called.")
             self.analysis_model.run(
                 city=self.city,
@@ -60,7 +56,8 @@ class AnalysisWorker(QObject):
             traceback.print_exc()
             self.progress.emit(0, error_message)
             self.analysis_finished_signal.emit()
-            print(f"AnalysisWorker finished signal emitted due to error (for UI update). Thread: {threading.current_thread().name}")
+            print(
+                f"AnalysisWorker finished signal emitted due to error (for UI update). Thread: {threading.current_thread().name}")
         finally:
             self.finished.emit()
             print("Worker finished signal (for thread cleanup) emitted.")

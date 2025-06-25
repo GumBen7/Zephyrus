@@ -1,10 +1,9 @@
-# models/csv_exporter.py
 from typing import Any
 
 import pandas as pd
 
 import config
-from .. import City, Exporter  # Изменяем путь импорта, если CsvExporter находится в той же папке, что и Exporter
+from models import City, Exporter
 
 
 class CsvExporter(Exporter):
@@ -18,16 +17,17 @@ class CsvExporter(Exporter):
 
         df = pd.DataFrame(data)
 
-        # Убедимся, что все необходимые колонки присутствуют
-        required_cols = ['year', 'bearing', 'distance', 'no2_umol_m2', 'month'] # Добавляем 'month'
+        required_cols = ['year', 'bearing', 'distance', 'no2_umol_m2', 'month']
         if not all(col in df.columns for col in required_cols):
-            print(f"Missing required columns for export in {city.name}'s data. Required: {required_cols}, Present: {df.columns.tolist()}")
+            print(
+                f"Missing required columns for export in {city.name}'s data. Required: {required_cols}, Present: {df.columns.tolist()}")
             return
 
-        # Извлекаем месяц из первой записи (все записи в 'data' будут для одного месяца)
-        # Это безопасно, так как мы группируем по месяцам перед вызовом export.
         export_month_num = data[0]['month']
         export_month_name = config.MONTHS.get(export_month_num, f"month_{export_month_num}")
+
+        # Map bearing numbers to names BEFORE pivoting
+        df['bearing'] = df['bearing'].map(config.BEARINGS)
 
         df_pivot = df.pivot_table(
             index=['year', 'bearing'],
@@ -36,8 +36,10 @@ class CsvExporter(Exporter):
         ).reset_index()
         df_pivot = df_pivot.rename_axis(columns=None)
 
-        # НОВОЕ: Имя файла теперь включает месяц
-        output_file_name = f"no2_{export_month_name}_{city.id}.csv"
+        # Rename columns 'year' and 'bearing' to 'Год' and 'Направление'
+        df_pivot = df_pivot.rename(columns={'year': 'Год', 'bearing': 'Направление'})
+
+        output_file_name = f"no2_{export_month_name}_{city.name}.csv"
 
         df_pivot.to_csv(config.EXPORTS_FOLDER + '/' + output_file_name, index=False, decimal=",", sep="\t")
         print(f"Exported {len(df_pivot)} records to {output_file_name}")
