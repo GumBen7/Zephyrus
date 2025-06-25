@@ -32,12 +32,12 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(800, 500)
 
         self.current_plot_ax = None
-        # Храним ссылки на объекты графиков, чтобы их можно было удалять
-        self._plot_model_line1 = None  # Для Theta1/r модели
-        self._plot_model_line2 = None  # Для Theta1/r + Theta2 модели
+        self._plot_model_line1 = None
+        self._plot_model_line2 = None
         self._plot_point1_marker = None
         self._plot_point2_marker = None
-        self.current_plotted_route: MonthlyDataRoute | None = None  # Добавим для хранения текущего маршрута
+        self.current_plotted_route: MonthlyDataRoute | None = None
+        self._max_actual_density_on_plot: float = 0.0  # НОВОЕ: храним максимальную плотность фактических данных на текущем графике
 
         self._init_ui()
         self._init_signals()
@@ -263,12 +263,11 @@ class MainWindow(QMainWindow):
         self.figure.clear()  # Полностью очищаем фигуру (и все старые оси/артисты)
         self.current_plot_ax = self.figure.add_subplot(111)
 
-        # --- НОВОЕ: Сброс ссылок на старые объекты после figure.clear() ---
+        # Сброс ссылок на старые объекты после figure.clear()
         self._plot_model_line1 = None
         self._plot_model_line2 = None
         self._plot_point1_marker = None
         self._plot_point2_marker = None
-        # --- Конец НОВОГО ---
 
         distances = []
         densities = []
@@ -285,8 +284,8 @@ class MainWindow(QMainWindow):
                                       horizontalalignment='center', verticalalignment='center',
                                       transform=self.current_plot_ax.transAxes, fontsize=14, color='gray')
             self.canvas.draw()
-            # Важно: если данных нет, мы все равно должны вызвать _update_ylim, чтобы оси были адекватны
-            self._update_ylim([])  # Передаем пустой список, чтобы установить дефолтный масштаб
+            self._update_ylim_auto([])  # Передаем пустой список, чтобы установить дефолтный масштаб
+            self._max_actual_density_on_plot = 0.0  # Сброс max_actual_density_on_plot
             return
 
         self.current_plot_ax.plot(distances, densities, marker='o', linestyle='-', label='Полученные данные')
@@ -297,10 +296,14 @@ class MainWindow(QMainWindow):
         self.current_plot_ax.grid(True)
         self.current_plot_ax.legend()
 
-        self._update_ylim(densities)  # Передаем только densities для основного графика
+        # НОВОЕ: сохраняем максимальную плотность фактических данных
+        self._max_actual_density_on_plot = max(densities)
+
+        self._update_ylim_auto(densities)  # Передаем только densities для основного графика
 
         self.canvas.draw()
 
+    # --- Измененный метод: теперь использует _max_actual_density_on_plot для динамической обрезки ---
     def plot_single_point_model(self, point1_coords: tuple[float, float], model_distances: list[float],
                                 model_densities: list[float]):
         if self.current_plot_ax is None: return
@@ -312,13 +315,20 @@ class MainWindow(QMainWindow):
             label=f'Опорная точка 1: ({point1_coords[0]:.0f}км, {point1_coords[1]:.2f})'
         )
 
+        # --- НОВОЕ: Динамическая обрезка модельных плотностей относительно _max_actual_density_on_plot ---
+        # Обрезаем значения, если они выше _max_actual_density_on_plot + 50
+        dynamic_clip_limit = self._max_actual_density_on_plot + 50
+        clipped_model_densities = [min(val, dynamic_clip_limit) for val in model_densities]
+        # --- Конец НОВОГО ---
+
         self._plot_model_line1, = self.current_plot_ax.plot(
-            model_distances, model_densities, color='red', linestyle='--', label='Модель (Q = $\\Theta_1$/r)'
+            model_distances, clipped_model_densities, color='red', linestyle='--', label='Модель (Q = $\\Theta_1$/r)'
         )
-        self._update_ylim(model_densities + [point1_coords[1]])
+        self._update_ylim_dynamic(clipped_model_densities + [point1_coords[1]], dynamic_clip_limit)
         self.current_plot_ax.legend()
         self.canvas.draw()
 
+    # --- Измененный метод: теперь использует _max_actual_density_on_plot и theta2_value ---
     def plot_double_point_model(self, point1_coords: tuple[float, float], point2_coords: tuple[float, float],
                                 model_distances: list[float], model_densities: list[float], theta2_value: float):
         if self.current_plot_ax is None: return
@@ -334,12 +344,18 @@ class MainWindow(QMainWindow):
             label=f'Опорная точка 2: ({point2_coords[0]:.0f}км, {point2_coords[1]:.2f})'
         )
 
+        # --- НОВОЕ: Динамическая обрезка модельных плотностей относительно _max_actual_density_on_plot ---
+        # Обрезаем значения, если они выше _max_actual_density_on_plot + 50
+        dynamic_clip_limit = self._max_actual_density_on_plot + 50
+        clipped_model_densities = [min(val, dynamic_clip_limit) for val in model_densities]
+        # --- Конец НОВОГО ---
+
         self._plot_model_line2, = self.current_plot_ax.plot(
-            model_distances, model_densities, color='purple', linestyle='-',
+            model_distances, clipped_model_densities, color='purple', linestyle='-',
             label=f'Модель (Q = $\\Theta_1$/r + $\\Theta_2$, Фон $\\Theta_2$={theta2_value:.2f})'
         )
 
-        self._update_ylim(model_densities + [point1_coords[1], point2_coords[1]])
+        self._update_ylim_dynamic(clipped_model_densities + [point1_coords[1], point2_coords[1]], dynamic_clip_limit)
         self.current_plot_ax.legend()
         self.canvas.draw()
 
@@ -356,38 +372,36 @@ class MainWindow(QMainWindow):
         ]
 
         for element in elements_to_remove:
-            # Проверяем, что элемент существует и привязан к текущим осям
             if element and element.axes == self.current_plot_ax:
-                element.remove()
+                try:
+                    element.remove()
+                except NotImplementedError:
+                    print(f"Warning: Could not remove element {element}. It might already be removed or not supported.")
 
-        # Обнуляем ссылки после попытки удаления
         self._plot_model_line1 = None
         self._plot_model_line2 = None
         self._plot_point1_marker = None
         self._plot_point2_marker = None
 
-        if self.current_plot_ax:  # Убедимся, что оси существуют
-            # Перемасштабирование Y-оси после удаления всех модельных элементов
+        if self.current_plot_ax:
             if self.current_plotted_route and self.current_plotted_route.densities:
                 densities_from_route = [q for q in self.current_plotted_route.densities.values() if not math.isnan(q)]
-                self._update_ylim(densities_from_route)
-            else:  # Если даже исходных данных нет
-                self._update_ylim([])  # Вызовем с пустым списком для дефолтного масштаба
+                self._update_ylim_auto(densities_from_route)
+            else:
+                self._update_ylim_auto([])  # Вызовем с пустым списком для дефолтного масштаба
 
-            # Обновляем легенду после удаления элементов
             self.current_plot_ax.legend()
             self.canvas.draw()
 
-    def _update_ylim(self, current_visible_densities: list[float]):
+    def _update_ylim_auto(self, current_visible_densities: list[float]):
         """
-        Обновляет пределы оси Y, основываясь на переданных плотностях.
+        Обновляет пределы оси Y, основываясь на переданных плотностях (для базового графика).
         """
         if self.current_plot_ax is None:
             return
 
-        if not current_visible_densities:  # Если нет данных для масштабирования
+        if not current_visible_densities:
             self.current_plot_ax.set_ylim(0, 1)  # Разумные пределы по умолчанию
-            # self.canvas.draw() # Нет необходимости здесь, вызывается из plot_data/clear_model_elements
             return
 
         min_val = min(current_visible_densities)
@@ -413,4 +427,56 @@ class MainWindow(QMainWindow):
                 y_min_padded = 0
 
         self.current_plot_ax.set_ylim(y_min_padded, y_max_padded)
-        # self.canvas.draw() # Нет необходимости здесь, вызывается из plot_data/clear_model_elements
+
+    # --- ИЗМЕНЕННЫЙ метод: теперь обрезает модельные плотности на основе max_actual_density ---
+    def _update_ylim_dynamic(self, model_densities_clipped: list[float], dynamic_clip_limit: float):
+        """
+        Обновляет пределы оси Y, основываясь на исходных и обрезанных модельных плотностях.
+        Учитывает динамический предел обрезки.
+        """
+        if self.current_plot_ax is None or self.current_plotted_route is None:
+            return
+
+        all_densities_to_consider = []
+        # Исходные данные (которые уже отфильтрованы от NaN в plot_data)
+        for val in self.current_plotted_route.densities.values():
+            if not math.isnan(val):
+                all_densities_to_consider.append(val)
+
+        # Обрезанные модельные данные
+        for val in model_densities_clipped:
+            if not math.isnan(val):
+                all_densities_to_consider.append(val)
+
+        if not all_densities_to_consider:
+            self.current_plot_ax.set_ylim(0, 1)
+            return
+
+        min_val_combined = min(all_densities_to_consider)
+        max_val_combined = max(all_densities_to_consider)
+
+        padding_factor = 0.1
+        y_range_combined = max_val_combined - min_val_combined
+
+        if y_range_combined == 0:
+            if min_val_combined == 0:
+                y_min_padded = -0.1
+                y_max_padded = 0.1
+            else:
+                y_min_padded = min_val_combined * (1 - padding_factor)
+                y_max_padded = min_val_combined * (1 + padding_factor)
+                if min_val_combined > 0 and y_min_padded < 0:
+                    y_min_padded = 0
+        else:
+            y_min_padded = min_val_combined - (y_range_combined * padding_factor)
+            y_max_padded = max_val_combined + (y_range_combined * padding_factor)
+
+            if y_min_padded < 0 and min_val_combined >= 0:
+                y_min_padded = 0
+
+        # НОВОЕ: Теперь верхний предел оси Y гарантированно не меньше dynamic_clip_limit (плюс небольшой отступ)
+        # Это предотвращает обрезание фактических данных, если dynamic_clip_limit оказался ниже них.
+        actual_max_plot_limit = dynamic_clip_limit + (dynamic_clip_limit * padding_factor * 0.1)  # Меньший отступ
+        y_max_padded = max(y_max_padded, actual_max_plot_limit)
+
+        self.current_plot_ax.set_ylim(y_min_padded, y_max_padded)

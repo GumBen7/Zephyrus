@@ -31,12 +31,10 @@ class MainPresenter(QObject):
         self.current_month: int | None = None
         self.current_selected_data_route: MonthlyDataRoute | None = None
 
-        # --- Инициализация переменных состояния как экземпляровых ---
         self._selected_point1: tuple[float, float] | None = None  # (r, q)
         self._selected_point2: tuple[float, float] | None = None  # (r, q)
         self._calculated_theta1: float | None = None
         self._calculated_theta2: float | None = None
-        # --- Конец инициализации ---
 
         self._connect_view_signals()
 
@@ -62,7 +60,6 @@ class MainPresenter(QObject):
         self.view.month_selected_signal.connect(self.on_month_changed)
         self.view.data_route_selected_signal.connect(self.on_data_route_selected)
 
-        # --- Подключение нового сигнала клика по графику ---
         self.view.plot_clicked_signal.connect(self.on_plot_clicked)
         print("View signals connected.")
 
@@ -84,8 +81,7 @@ class MainPresenter(QObject):
         self.current_selected_data_route = route
         print(
             f"Selected data route in presenter: Bearing={route.bearing}, Month={route.month}, Year={route.year}. Densities: {route.densities}")
-        self.view.plot_data(route)  # Отрисовываем базовый график
-        # Сбрасываем выбранные точки и модель при смене маршрута
+        self.view.plot_data(route)
         self._selected_point1 = None
         self._selected_point2 = None
         self._calculated_theta1 = None
@@ -169,14 +165,12 @@ class MainPresenter(QObject):
         self.thread.start()
         print("Thread started.")
 
-    # --- Новый слот для обработки кликов по графику ---
-    @Slot(float, float, int)  # x, y, button
+    @Slot(float, float, int)
     def on_plot_clicked(self, clicked_x: float, clicked_y: float, button: int):
         if not self.current_selected_data_route:
             self.view.set_status_message("Выберите данные для анализа на графике, чтобы построить модель.")
             return
 
-        # Фильтруем данные, чтобы исключить NaN
         valid_data_points = [(d, q) for d, q in self.current_selected_data_route.densities.items() if not math.isnan(q)]
 
         if not valid_data_points:
@@ -186,41 +180,36 @@ class MainPresenter(QObject):
         distances_only = [p[0] for p in valid_data_points]
         densities_only = [p[1] for p in valid_data_points]
 
-        # Определяем диапазон для модельной функции
-        r_min_model = min(distances_only) if min(distances_only) > 0 else 1  # Начинаем с 1, если 0 - минимальное
-        r_max_model = max(distances_only) + 10  # Немного больше, чтобы показать тренд
-        model_generation_distances = np.linspace(r_min_model, r_max_model, 100).tolist()  # 100 точек для гладкой кривой
+        r_min_model = min(distances_only) if min(distances_only) > 0 else 1
+        r_max_model = max(distances_only) + 10
+        model_generation_distances = np.linspace(r_min_model, r_max_model, 100).tolist()
 
-        if button == 1:  # Левая кнопка мыши: выбор опорной точки
-            # Находим ближайшую точку данных к координате x клика
+        if button == 1:
             nearest_dist_index = np.argmin(np.abs(np.array(distances_only) - clicked_x))
             nearest_dist = distances_only[nearest_dist_index]
             nearest_density = densities_only[nearest_dist_index]
 
-            # Проверка на r=0 для первой точки (Theta1/r)
             if nearest_dist == 0:
                 self.view.set_status_message(
                     "Ошибка: Точка находится в центре города (r=0), невозможно рассчитать модель Q = Theta/r.")
                 return
 
             if self._selected_point1 is None:
-                # Первый клик (или после полного сброса): выбираем первую опорную точку
                 self._selected_point1 = (nearest_dist, nearest_density)
-                self._selected_point2 = None  # Сбрасываем вторую точку, если она была выбрана ранее
+                self._selected_point2 = None
 
-                # Рассчитываем Theta1 для модели q = Theta1/r
                 self._calculated_theta1 = nearest_density * nearest_dist
-                self._calculated_theta2 = 0.0  # Для простой модели фон равен 0
+                self._calculated_theta2 = 0.0
 
                 model_densities_single = [self._calculated_theta1 / r for r in model_generation_distances if r > 0]
+                # --- Изменение: больше не передаем q1_density, MainWindow берет его из своего состояния ---
                 self.view.plot_single_point_model(self._selected_point1, model_generation_distances,
                                                   model_densities_single)
+                # --- Конец изменения ---
                 self.view.set_status_message(
                     f"Первая опорная точка выбрана (r={nearest_dist:.0f}км, q={nearest_density:.2f}). Нажмите еще раз для второй точки или ПКМ для отмены.")
 
             else:
-                # Второй клик: выбираем вторую опорную точку
-                # Проверяем, чтобы вторая точка отличалась от первой
                 if nearest_dist == self._selected_point1[0]:
                     self.view.set_status_message("Выберите вторую точку на другом расстоянии.")
                     return
@@ -230,18 +219,11 @@ class MainPresenter(QObject):
                 r1, q1 = self._selected_point1
                 r2, q2 = self._selected_point2
 
-                # Решаем систему уравнений:
-                # q1 = Theta1/r1 + Theta2
-                # q2 = Theta1/r2 + Theta2
-
-                # Theta1 = (q1 - q2) / (1/r1 - 1/r2)
-                # Theta2 = q1 - Theta1/r1
-
                 denominator = (1 / r1) - (1 / r2)
-                if abs(denominator) < 1e-9:  # Проверка на слишком близкие r1, r2, чтобы избежать деления на ~ноль
+                if abs(denominator) < 1e-9:
                     self.view.set_status_message(
                         "Ошибка: Вторая опорная точка слишком близка к первой по расстоянию, невозможно решить систему.")
-                    self._selected_point2 = None  # Сбросить некорректный выбор
+                    self._selected_point2 = None
                     return
 
                 try:
@@ -251,15 +233,14 @@ class MainPresenter(QObject):
                     print(
                         f"Рассчитанная Theta1 (θ1): {self._calculated_theta1:.2f}, Theta2 (θ2, Фон): {self._calculated_theta2:.2f}")
 
-                    # Генерируем точки для модели Q = Theta1/r + Theta2
                     model_densities_double = []
                     for r_val in model_generation_distances:
                         if r_val > 0:
                             model_densities_double.append((self._calculated_theta1 / r_val) + self._calculated_theta2)
                         else:
-                            model_densities_double.append(np.nan)  # Деление на ноль, если r = 0
+                            model_densities_double.append(np.nan)
 
-                    # --- Передаем _calculated_theta2 в plot_double_point_model ---
+                    # --- Изменение: больше не передаем q1_density ---
                     self.view.plot_double_point_model(self._selected_point1, self._selected_point2,
                                                       model_generation_distances, model_densities_double,
                                                       self._calculated_theta2)
@@ -270,29 +251,28 @@ class MainPresenter(QObject):
 
                 except Exception as e:
                     self.view.set_status_message(f"Ошибка при расчете модели: {e}")
-                    self._selected_point2 = None  # Сбросить некорректный выбор
+                    self._selected_point2 = None
 
-        elif button == 3:  # Правая кнопка мыши: отмена
+        elif button == 3:
             if self._selected_point2:
-                # Отмена второй точки
                 self._selected_point2 = None
                 self._calculated_theta2 = None
 
-                # Перерисовываем модель по одной точке
-                r1, q1 = self._selected_point1  # <- Эта строка теперь безопасна, если _selected_point1 всегда установлен
+                r1, q1 = self._selected_point1
                 self._calculated_theta1 = q1 * r1
-                self._calculated_theta2 = 0.0  # Возвращаем фон к 0 для простой модели
+                self._calculated_theta2 = 0.0
 
                 model_densities_single = [self._calculated_theta1 / r for r in model_generation_distances if r > 0]
+                # --- Изменение: больше не передаем q1_density ---
                 self.view.plot_single_point_model(self._selected_point1, model_generation_distances,
                                                   model_densities_single)
+                # --- Конец изменения ---
                 self.view.set_status_message("Вторая опорная точка отменена. Построена модель по первой точке.")
             elif self._selected_point1:
-                # Отмена первой точки (и, следовательно, второй, если она была, но мы уже ее обнулили выше)
                 self._selected_point1 = None
                 self._calculated_theta1 = None
                 self._calculated_theta2 = None
-                self.view.clear_model_elements()  # Очищаем все модельные элементы
+                self.view.clear_model_elements()
                 self.view.set_status_message("Выбор точек отменен. График сброшен.")
             else:
                 self.view.set_status_message("Нет выбранных точек для отмены.")
